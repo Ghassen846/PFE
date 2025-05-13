@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import fetch from 'node-fetch';
+import bcrypt from 'bcryptjs';
 import Delivery from '../models/Delivery.js';
 import User from '../models/User.js';
 
@@ -30,373 +31,23 @@ export const getAllUsers = async (req, res) => {
       if (user.location && user.location.latitude && user.location.longitude) {
         address = await reverseGeocode(user.location.latitude, user.location.longitude);
       }
-      return { ...user.toObject(), address };
+      
+      // Convert Mongoose document to plain object and add address
+      const userObj = user.toObject();
+      userObj.address = address;
+      
+      // Update image URL if necessary
+      if (userObj.image && !userObj.image.startsWith('http')) {
+        userObj.image = `http://localhost:5000/uploads/${userObj.image.replace(/^uploads[\\/]/, '')}`;
+      }
+      
+      return userObj;
     }));
 
-    res.json(usersWithAddress);
-  } catch (err) {
-    console.error('Error fetching users:', err);
-    res.status(500).json({ message: err.message });
-  }
-};
-
-// Get users by role
-export const getUsersByRole = async (req, res) => {
-  try {
-    const { role } = req.params;
-    const users = await User.find({ role }).select('-password');
-    res.json(users);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
-
-// Update user
-export const updateUser = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const updates = req.body;
-
-    // Don't allow password updates through this route
-    if (updates.password) {
-      delete updates.password;
-    }
-
-    // Check if updating a livreur profile
-    const isLivreur = await User.findById(id).select('role');
-    
-    // Format updates for mongoose 
-    const formattedUpdates = { ...updates };
-    
-    // Format location if provided
-    if (updates.location) {
-      formattedUpdates.location = {
-        latitude: parseFloat(updates.location.latitude) || 0,
-        longitude: parseFloat(updates.location.longitude) || 0
-      };
-    }
-    
-    // Handle vehicle updates
-    if (updates.vehicle) {
-      formattedUpdates.vehicle = updates.vehicle;
-    }
-
-    // Get the updated user with proper population and handle image formatting
-    const user = await User.findByIdAndUpdate(
-      id, 
-      formattedUpdates, 
-      { new: true, runValidators: true }
-    ).select('-password');
-
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    // Format image URL
-    let image = user.image;
-    if (image && !/^https?:\/\//.test(image)) {
-      image = `http://localhost:5000/uploads/${image.replace(/^uploads[\\/]/, '')}`;
-    }
-    
-    // Calculate and add livreur stats if needed
-    let livreurStats = null;
-    if (user.role === 'livreur') {
-      livreurStats = await calculateLivreurStats(user._id);
-    }
-    
-    // Create a proper response object
-    const userObj = user.toObject();
-    delete userObj.password;
-    
-    // Return a well-formatted response
-    res.json({ 
-      message: 'User updated successfully',
-      user: {
-        ...userObj,
-        image,
-        livreurStats: user.role === 'livreur' ? livreurStats : undefined
-      }
-    });
-  } catch (err) {
-    console.error('Error updating user:', err);
-    res.status(500).json({ message: err.message });
-  }
-};
-
-// Delete user
-export const deleteUser = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const user = await User.findByIdAndDelete(id);
-
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    res.json({ message: 'User deleted successfully' });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
-
-export const registerUser = async (req, res) => {
-  try {
-    console.log('Register request body:', req.body);
-    console.log('Register request file:', req.file);
-
-    if (!req.body) {
-      console.error('No request body received');
-      return res.status(400).json({ message: 'Request body is missing' });
-    }
-
-    // Parse fields from req.body (handle both JSON and multipart/form-data)
-    let {
-      username,
-      firstName,
-      name,
-      email,
-      password,
-      phone,
-      location,
-      role,
-      vehiculetype, // <-- add this
-      status        // <-- add this
-    } = req.body;
-
-    // Default role to 'client' if not provided
-    if (!role) {
-      role = 'client';
-    }
-
-    // Parse location if sent as fields
-    if (
-      (!location || typeof location !== 'object') &&
-      (req.body['location[latitude]'] !== undefined || req.body['location[longitude]'] !== undefined)
-    ) {
-      location = {
-        latitude: parseFloat(req.body['location[latitude]']) || 0,
-        longitude: parseFloat(req.body['location[longitude]']) || 0,
-      };
-      console.log('Parsed location from fields:', location);
-    }
-
-    // Ensure vehiculetype and status are extracted for livreur
-    if (role === 'livreur') {
-      vehiculetype = req.body.vehiculetype || vehiculetype;
-      status = req.body.status || status;
-      if (!vehiculetype || !status) {
-        return res.status(400).json({ message: 'vehiculetype and status are required for livreur' });
-      }
-    }
-
-    if (!phone) {
-      console.error('Phone number is missing');
-      return res.status(400).json({ message: 'Phone number is required' });
-    }
-
-    if (!/^(\+216)?[2459][0-9]{7}$/.test(phone)) {
-      console.error('Invalid Tunisian phone number:', phone);
-      return res.status(400).json({ message: 'Invalid Tunisian phone number format' });
-    }
-
-    // Check if user already exists
-    const userExists = await User.findOne({ email });
-    if (userExists) {
-      console.error('User already exists:', email);
-      return res.status(400).json({ message: 'User already exists' });
-    }
-
-    // Create a new user
-    const user = new User({
-      username,
-      firstName,
-      name,
-      email,
-      password,
-      phone,
-      location: {
-        latitude: location?.latitude || 0,
-        longitude: location?.longitude || 0,
-      },
-      role,
-      vehiculetype: role === 'livreur' ? vehiculetype : undefined,
-      status: role === 'livreur' ? status : undefined,
-      image: req.file ? req.file.filename : '', // <-- store the saved filename
-    });
-
-    // Save the user to the database
-    await user.save();
-
-    console.log('User registered successfully:', user._id);
-
-    res.status(201).json({ message: 'User registered successfully', user });
-  } catch (err) {
-    console.error('Error registering user:', err.message, err);
-    res.status(500).json({ message: 'Error registering user', error: err.message });
-  }
-};
-
-export const loginUser = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    // Find user by email
-    const user = await User.findOne({ email });
-    if (!user || !(await user.comparePassword(password))) {
-      return res.status(401).json({ message: 'Invalid email or password' });
-    }
-
-    // Generate a token and respond with user details
-    res.json({
-      _id: user._id,
-      username: user.username,
-      firstName: user.firstName,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      token: generateToken(user._id),
-    });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
-
-export const getProfile = async (req, res) => {
-  try {
-    // Debug log to check if the middleware sets req.user
-    console.log("getProfile: req.user =", req.user);
-    const user = await User.findById(req.user._id).select('-password');
-    if (!user) return res.status(404).json({ message: 'User not found' });
-    let image = user.image;
-    if (image && !/^https?:\/\//.test(image)) {
-      image = `http://localhost:5000/uploads/${image.replace(/^uploads[\\/]/, '')}`;
-    }
-    res.json({ ...user.toObject(), image });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
-
-export const getUserProfile = async (req, res) => {
-  try {
-    const userId = req.params.id;
-    const user = await User.findById(userId).select('-password');
-    if (!user) return res.status(404).json({ message: 'User not found' });
-    let image = user.image;
-    if (image && !/^https?:\/\//.test(image)) {
-      image = `http://localhost:5000/uploads/${image.replace(/^uploads[\\/]/, '')}`;
-    }
-    res.json({ ...user.toObject(), image });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
-
-// Add or update vehicle info for livreur
-export const updateVehicle = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { vehicle } = req.body;
-    const user = await User.findByIdAndUpdate(id, { vehicle }, { new: true });
-    if (!user) return res.status(404).json({ message: 'User not found' });
-    res.json(user);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
-
-// Add maintenance record
-export const addMaintenance = async (req, res) => {
-  try {
-    const { id } = req.params; // user id
-    const { maintenance } = req.body;
-    const user = await User.findById(id);
-    if (!user) return res.status(404).json({ message: 'User not found' });
-    if (!user.vehicle) user.vehicle = {};
-    if (!user.vehicle.maintenanceHistory) user.vehicle.maintenanceHistory = [];
-    user.vehicle.maintenanceHistory.push(maintenance);
-    await user.save();
-    res.json(user);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
-
-/**
- * Calculate stats for a livreur (deliveries completed, average rating, etc.)
- * @param {ObjectId} livreurId
- * @returns {Promise<Object>} stats
- */
-async function calculateLivreurStats(livreurId) {
-  const Delivery = (await import('../models/Delivery.js')).default;
-  const deliveries = await Delivery.find({ driver: livreurId, status: 'delivered' });
-  const completed = deliveries.length;
-  const ratings = deliveries.map(d => d.rating).filter(r => typeof r === 'number');
-  const avgRating = ratings.length ? (ratings.reduce((a, b) => a + b, 0) / ratings.length) : 0;
-  // Add more stats as needed
-  return {
-    deliveriesCompleted: completed,
-    rating: avgRating,
-    // ...other stats
-  };
-}
-
-// Add a new user (admin function)
-export const addUser = async (req, res) => {
-  const { username, firstName, name, email, password, phone, location, role, image, verified, vehiculetype, status, vehiculedocuments } = req.body;
-
-  if (!name || !email || !password || !location || location.latitude === undefined || location.longitude === undefined) {
-    return res.status(400).json({ 
-      message: "Name, email, password, and valid location (latitude, longitude) are required" 
-    });
-  }
-
-  try {
-    // Check if the email already exists
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ message: "Email already exists" });
-    }
-
-    const newUser = new User({
-      username,
-      firstName,
-      name,
-      email,
-      password,
-      phone,
-      location,
-      role,
-      image,
-      verified,
-      vehiculetype: role === 'livreur' ? vehiculetype : undefined,
-      status: role === 'livreur' ? status : undefined,
-      vehiculedocuments: role === 'livreur' ? vehiculedocuments : undefined
-    });
-
-    await newUser.save();
-
-    if (newUser.role === 'livreur') {
-      const newDelivery = new Delivery({
-        order: null,
-        driver: newUser._id,
-        status: 'pending',
-        deliveredAt: null
-      });
-      await newDelivery.save();
-    }
-
-    // Convert to object and remove password
-    const userObj = newUser.toObject();
-    delete userObj.password;
-
-    res.status(201).json({ 
-      message: `User ${name} has been added`, 
-      user: userObj 
-    });
+    res.status(200).json(usersWithAddress);
   } catch (error) {
-    console.error('Error adding user:', error.message);
-    res.status(500).json({ message: 'Error adding user' });
+    console.error('Error getting users:', error);
+    res.status(500).json({ message: 'Failed to get users' });
   }
 };
 
@@ -404,50 +55,413 @@ export const addUser = async (req, res) => {
 export const getUserById = async (req, res) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-      return res.status(400).json({ message: 'Invalid user ID' });
+      return res.status(400).json({ message: 'Invalid user ID format' });
     }
+
     const user = await User.findById(req.params.id).select('-password');
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
-    let image = user.image;
-    if (image && !/^https?:\/\//.test(image)) {
-      image = `http://localhost:5000/uploads/${image.replace(/^uploads[\\/]/, '')}`;
-    }
+
+    // Enhance with address information if location exists
     let address = null;
     if (user.location && user.location.latitude && user.location.longitude) {
       address = await reverseGeocode(user.location.latitude, user.location.longitude);
     }
+
+    // Fix image URL
+    let image = user.image;
+    if (image && !image.startsWith('http')) {
+      image = `http://localhost:5000/uploads/${image.replace(/^uploads[\\/]/, '')}`;
+    }
+
     const userObj = user.toObject();
-    // Ensure password is removed even if select didn't work
-    delete userObj.password;
-    res.json({ ...userObj, image, address });
+    userObj.address = address;
+    userObj.image = image;
+
+    res.status(200).json(userObj);
   } catch (error) {
-    console.error('Error fetching user:', error);
-    res.status(500).json({ message: 'Error fetching user' });
+    console.error('Error getting user by ID:', error);
+    res.status(500).json({ message: 'Failed to get user details' });
+  }
+};
+
+// Create a new user (registration)
+export const registerUser = async (req, res) => {
+  try {
+    const {
+      username,
+      firstName,
+      name,
+      email,
+      password,
+      phone,
+      role,
+      vehiculetype,
+      status,
+    } = req.body;
+
+    // Handle location data
+    const latitude = req.body['location[latitude]'] || req.body.latitude || 0;
+    const longitude = req.body['location[longitude]'] || req.body.longitude || 0;
+
+    // Check for existing email
+    const existingEmail = await User.findOne({ email });
+    if (existingEmail) {
+      return res.status(400).json({ message: 'Email already in use.' });
+    }
+
+    // Check for existing username
+    const existingUsername = await User.findOne({ username });
+    if (existingUsername) {
+      return res.status(400).json({ message: 'Username already taken.' });
+    }
+
+    // Create the user
+    const user = await User.create({
+      username,
+      firstName,
+      name, // Map LastName to name field
+      email,
+      password, // Will be hashed by the pre-save hook
+      phone,
+      role: role || 'livreur', // Default to livreur if not specified
+      location: {
+        latitude: parseFloat(latitude),
+        longitude: parseFloat(longitude),
+      },
+      vehiculetype: vehiculetype || undefined,
+      status: status || 'available', // Default status
+      isOnline: true // Set as online when registering
+    });
+
+    // Generate JWT token
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET || 'your_jwt_secret', {
+      expiresIn: '30d',
+    });
+
+    // Return user data (excluding password)
+    const userWithoutPassword = {
+      _id: user._id,
+      username: user.username,
+      firstName: user.firstName,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      location: user.location,
+      vehiculetype: user.vehiculetype,
+      status: user.status,
+      token,
+      isOnline: user.isOnline
+    };
+
+    res.status(201).json(userWithoutPassword);
+  } catch (error) {
+    console.error('Error registering user:', error);
+    res.status(500).json({ message: 'Failed to register user', error: error.message });
+  }
+};
+
+// Update a user
+export const updateUser = async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid user ID format' });
+    }
+
+    // Check for user's existence
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // If trying to update email, check if the new email is already in use
+    if (req.body.email && req.body.email !== user.email) {
+      const existingEmail = await User.findOne({ email: req.body.email });
+      if (existingEmail) {
+        return res.status(400).json({ message: 'Email already in use.' });
+      }
+    }
+
+    // If trying to update username, check if the new username is already in use
+    if (req.body.username && req.body.username !== user.username) {
+      const existingUsername = await User.findOne({ username: req.body.username });
+      if (existingUsername) {
+        return res.status(400).json({ message: 'Username already taken.' });
+      }
+    }
+
+    // Handle location update if provided
+    let locationUpdate = {};
+    if (req.body.latitude !== undefined && req.body.longitude !== undefined) {
+      locationUpdate = {
+        location: {
+          latitude: parseFloat(req.body.latitude),
+          longitude: parseFloat(req.body.longitude)
+        }
+      };
+    }
+
+    // Combine updates
+    const updates = {
+      ...req.body,
+      ...locationUpdate
+    };
+
+    // Don't let the password be updated through this endpoint
+    delete updates.password;
+
+    // Update the user
+    const updatedUser = await User.findByIdAndUpdate(
+      req.params.id,
+      { $set: updates },
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: 'User not found after update attempt' });
+    }
+
+    // Fix image URL
+    let image = updatedUser.image;
+    if (image && !image.startsWith('http')) {
+      image = `http://localhost:5000/uploads/${image.replace(/^uploads[\\/]/, '')}`;
+    }
+
+    const userObj = updatedUser.toObject();
+    userObj.image = image;
+
+    res.status(200).json(userObj);
+  } catch (error) {
+    console.error('Error updating user:', error);
+    res.status(500).json({ message: 'Failed to update user', error: error.message });
+  }
+};
+
+// Delete a user
+export const deleteUser = async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid user ID format' });
+    }
+
+    const deletedUser = await User.findByIdAndDelete(req.params.id);
+    if (!deletedUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.status(200).json({ message: 'User deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({ message: 'Failed to delete user' });
+  }
+};
+
+// Login a user
+export const loginUser = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Check for empty fields
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Please provide email and password' });
+    }
+
+    // Find the user by email
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
+    // Check if password matches
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
+    // Update online status
+    user.isOnline = true;
+    user.lastActive = new Date();
+    await user.save();
+
+    // Generate JWT token
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET || 'your_jwt_secret', {
+      expiresIn: '30d',
+    });
+
+    // Fix image URL
+    let image = user.image;
+    if (image && !image.startsWith('http')) {
+      image = `http://localhost:5000/uploads/${image.replace(/^uploads[\\/]/, '')}`;
+    }
+
+    // Return user data without password
+    res.status(200).json({
+      _id: user._id,
+      username: user.username,
+      firstName: user.firstName,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      image,
+      token,
+      isOnline: user.isOnline
+    });
+  } catch (error) {
+    console.error('Error during login:', error);
+    res.status(500).json({ message: 'Failed to login', error: error.message });
+  }
+};
+
+// Change password
+export const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const userId = req.user._id;
+
+    // Find the user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Check if current password is correct
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Current password is incorrect' });
+    }
+
+    // Update the password
+    user.password = newPassword; // Will be hashed by pre-save hook
+    await user.save();
+
+    res.status(200).json({ message: 'Password changed successfully' });
+  } catch (error) {
+    console.error('Error changing password:', error);
+    res.status(500).json({ message: 'Failed to change password' });
+  }
+};
+
+// Get all livreurs
+export const getAllLivreurs = async (req, res) => {
+  try {
+    const livreurs = await User.find({ role: 'livreur' }).select('-password');
+
+    // Add address field using reverse geocoding if available
+    const livreursWithAddress = await Promise.all(livreurs.map(async livreur => {
+      let address = null;
+      if (livreur.location && livreur.location.latitude && livreur.location.longitude) {
+        address = await reverseGeocode(livreur.location.latitude, livreur.location.longitude);
+      }
+      
+      // Fix image URL
+      let image = livreur.image;
+      if (image && !image.startsWith('http')) {
+        image = `http://localhost:5000/uploads/${image.replace(/^uploads[\\/]/, '')}`;
+      }
+      
+      const livreurObj = livreur.toObject();
+      livreurObj.address = address;
+      livreurObj.image = image;
+      
+      return livreurObj;
+    }));
+
+    res.status(200).json(livreursWithAddress);
+  } catch (error) {
+    console.error('Error getting livreurs:', error);
+    res.status(500).json({ message: 'Failed to get livreurs' });
+  }
+};
+
+// Get all available livreurs
+export const getAvailableLivreurs = async (req, res) => {
+  try {
+    const availableLivreurs = await User.find({
+      role: 'livreur',
+      status: 'available'
+    }).select('-password');
+
+    // Add address field using reverse geocoding if available
+    const livreursWithAddress = await Promise.all(availableLivreurs.map(async livreur => {
+      let address = null;
+      if (livreur.location && livreur.location.latitude && livreur.location.longitude) {
+        address = await reverseGeocode(livreur.location.latitude, livreur.location.longitude);
+      }
+      
+      // Fix image URL
+      let image = livreur.image;
+      if (image && !image.startsWith('http')) {
+        image = `http://localhost:5000/uploads/${image.replace(/^uploads[\\/]/, '')}`;
+      }
+      
+      const livreurObj = livreur.toObject();
+      livreurObj.address = address;
+      livreurObj.image = image;
+      
+      return livreurObj;
+    }));
+
+    res.status(200).json(livreursWithAddress);
+  } catch (error) {
+    console.error('Error getting available livreurs:', error);
+    res.status(500).json({ message: 'Failed to get available livreurs' });
   }
 };
 
 // Rate a livreur
 export const rateLivreur = async (req, res) => {
   try {
-    const { id } = req.params; // Livreur ID
-    const { clientId, rating } = req.body;
+    const { rating } = req.body;
+    const livreurId = req.params.id;
+    const clientId = req.user._id; // Assuming authentication middleware sets req.user
 
-    if (!rating || rating < 1 || rating > 5) {
+    // Validate the rating value
+    if (rating < 1 || rating > 5) {
       return res.status(400).json({ message: 'Rating must be between 1 and 5' });
     }
 
-    const livreur = await User.findById(id);
-    if (!livreur || livreur.role !== 'livreur') {
+    // Find the livreur
+    const livreur = await User.findById(livreurId);
+    if (!livreur) {
       return res.status(404).json({ message: 'Livreur not found' });
     }
 
-    livreur.ratings.push({ clientId, rating });
+    // Check if this client has already rated this livreur
+    const existingRatingIndex = livreur.ratings.findIndex(
+      r => r.clientId.toString() === clientId.toString()
+    );
+
+    if (existingRatingIndex >= 0) {
+      // Update existing rating
+      livreur.ratings[existingRatingIndex].rating = rating;
+    } else {
+      // Add new rating
+      livreur.ratings.push({ clientId, rating });
+    }
+
+    // Calculate average rating
+    const totalRating = livreur.ratings.reduce((sum, r) => sum + r.rating, 0);
+    const averageRating = totalRating / livreur.ratings.length;
+
+    // Update livreur stats with new average rating
+    if (!livreur.livreurStats) {
+      livreur.livreurStats = {};
+    }
+    livreur.livreurStats.rating = averageRating;
+
     await livreur.save();
 
-    // Convert to object and remove password
+    // Fix image URL
+    let image = livreur.image;
+    if (image && !image.startsWith('http')) {
+      image = `http://localhost:5000/uploads/${image.replace(/^uploads[\\/]/, '')}`;
+    }
+
     const livreurObj = livreur.toObject();
+    livreurObj.image = image;
     delete livreurObj.password;
 
     res.status(200).json({ message: 'Livreur rated successfully', livreur: livreurObj });
@@ -474,6 +488,41 @@ export const getCurrentUser = async (req, res) => {
     res.json({ ...userObj, image });
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+};
+
+// Update user's online status
+export const updateOnlineStatus = async (req, res) => {
+  try {
+    const { userId, isOnline } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ message: 'User ID is required' });
+    }
+    
+    if (typeof isOnline !== 'boolean') {
+      return res.status(400).json({ message: 'isOnline must be a boolean value' });
+    }
+    
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    user.isOnline = isOnline;
+    user.lastActive = new Date(); // Update last active timestamp
+    await user.save();
+    
+    console.log(`User ${userId} online status updated to ${isOnline}`);
+    
+    res.status(200).json({ 
+      message: `Online status updated to ${isOnline ? 'online' : 'offline'}`,
+      isOnline: user.isOnline,
+      lastActive: user.lastActive
+    });
+  } catch (error) {
+    console.error('Error updating online status:', error);
+    res.status(500).json({ message: 'Failed to update online status', error: error.message });
   }
 };
 

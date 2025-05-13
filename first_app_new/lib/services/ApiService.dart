@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:async'; // For TimeoutException
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,7 +9,7 @@ import 'package:http_parser/http_parser.dart';
 
 class ApiService {
   // Base URL - change this to your server address
-  static const String baseUrl = 'http://192.168.100.87:5000/api';
+  static const String baseUrl = 'http://192.168.100.245:5000/api';
   // Alternative URLs for different environments
   static const String emulatorUrl = 'http://10.0.2.2:5000/api';
   static const String localUrl = 'http://localhost:5000/api';
@@ -39,6 +40,33 @@ class ApiService {
     }
   }
 
+  // Check if the device has internet connectivity
+  static Future<bool> hasInternetConnection() async {
+    try {
+      final result = await InternetAddress.lookup('google.com');
+      return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+    } on SocketException catch (_) {
+      return false;
+    } catch (e) {
+      debugPrint('Error checking internet connection: $e');
+      return false;
+    }
+  }
+
+  // Ping server to check connectivity without authentication
+  static Future<bool> pingServer() async {
+    try {
+      final response = await http
+          .get(Uri.parse('${getBaseUrl()}/health'))
+          .timeout(const Duration(seconds: 5));
+
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('Error pinging server: $e');
+      return false;
+    }
+  }
+
   // Generic GET request
   static Future<Map<String, dynamic>> get(
     String endpoint, {
@@ -48,15 +76,26 @@ class ApiService {
       final token = await getToken();
       final url = '${getBaseUrl()}/$endpoint';
       debugPrint('GET request to: $url');
-
-      final response = await http.get(
-        Uri.parse(url),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-          ...?headers,
-        },
-      );
+      final response = await http
+          .get(
+            Uri.parse(url),
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'application/json',
+              ...?headers,
+            },
+          )
+          .timeout(
+            const Duration(
+              seconds: 20,
+            ), // Set a 20 second timeout for better reliability
+            onTimeout: () {
+              debugPrint('GET request timeout for endpoint: $endpoint');
+              throw TimeoutException(
+                'Server connection timeout. Please check your internet connection and try again.',
+              );
+            },
+          );
 
       return _processResponse(response);
     } catch (e) {
@@ -76,16 +115,27 @@ class ApiService {
       final url = '${getBaseUrl()}/$endpoint';
       debugPrint('POST request to: $url');
       debugPrint('POST data: ${jsonEncode(data)}');
-
-      final response = await http.post(
-        Uri.parse(url),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-          ...?headers,
-        },
-        body: jsonEncode(data),
-      );
+      final response = await http
+          .post(
+            Uri.parse(url),
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'application/json',
+              ...?headers,
+            },
+            body: jsonEncode(data),
+          )
+          .timeout(
+            const Duration(
+              seconds: 20,
+            ), // Set a 20 second timeout for better reliability
+            onTimeout: () {
+              debugPrint('POST request timeout for endpoint: $endpoint');
+              throw TimeoutException(
+                'Connection timeout. Please check your internet connection.',
+              );
+            },
+          );
 
       return _processResponse(response);
     } catch (e) {
@@ -185,6 +235,7 @@ class ApiService {
     String fieldName, {
     Map<String, String>? fields,
     Map<String, String>? headers,
+    List<File>? additionalFiles,
   }) async {
     try {
       final token = await getToken();
@@ -208,6 +259,23 @@ class ApiService {
         ),
       );
 
+      // Add additional files if provided (for vehicle documents)
+      if (additionalFiles != null && additionalFiles.isNotEmpty) {
+        for (int i = 0; i < additionalFiles.length; i++) {
+          File docFile = additionalFiles[i];
+          fileExtension = docFile.path.split('.').last.toLowerCase();
+          contentType = fileExtension == 'jpg' ? 'jpeg' : fileExtension;
+
+          request.files.add(
+            await http.MultipartFile.fromPath(
+              'vehiculedocuments',
+              docFile.path,
+              contentType: MediaType('image', contentType),
+            ),
+          );
+        }
+      }
+
       // Add additional fields if provided
       if (fields != null) {
         request.fields.addAll(fields);
@@ -220,6 +288,70 @@ class ApiService {
       return _processResponse(response);
     } catch (e) {
       debugPrint('File upload error: $e');
+      return {'error': e.toString()};
+    }
+  }
+
+  // Upload multiple files with one main image file and additional documents
+  static Future<Map<String, dynamic>> uploadMultipleFiles(
+    String endpoint,
+    File mainFile,
+    String mainFieldName,
+    List<File>? additionalFiles, {
+    Map<String, String>? fields,
+    Map<String, String>? headers,
+  }) async {
+    try {
+      final token = await getToken();
+      final url = '${getBaseUrl()}/$endpoint';
+      debugPrint('uploadMultipleFiles to: $url');
+
+      final request = http.MultipartRequest('POST', Uri.parse(url));
+
+      // Add authorization header
+      request.headers.addAll({'Authorization': 'Bearer $token', ...?headers});
+
+      // Add main file
+      var fileExtension = mainFile.path.split('.').last.toLowerCase();
+      var contentType = fileExtension == 'jpg' ? 'jpeg' : fileExtension;
+
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          mainFieldName,
+          mainFile.path,
+          contentType: MediaType('image', contentType),
+        ),
+      );
+
+      // Add additional files if provided
+      if (additionalFiles != null && additionalFiles.isNotEmpty) {
+        for (int i = 0; i < additionalFiles.length; i++) {
+          File file = additionalFiles[i];
+          fileExtension = file.path.split('.').last.toLowerCase();
+          contentType = fileExtension == 'jpg' ? 'jpeg' : fileExtension;
+
+          request.files.add(
+            await http.MultipartFile.fromPath(
+              'vehiculedocuments',
+              file.path,
+              contentType: MediaType('image', contentType),
+            ),
+          );
+        }
+      }
+
+      // Add additional fields if provided
+      if (fields != null) {
+        request.fields.addAll(fields);
+      }
+
+      // Send the request
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      return _processResponse(response);
+    } catch (e) {
+      debugPrint('Multiple file upload error: $e');
       return {'error': e.toString()};
     }
   }

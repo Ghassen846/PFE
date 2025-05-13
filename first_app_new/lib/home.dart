@@ -1,17 +1,19 @@
 import 'dart:convert';
-import 'package:first_app/Help.dart';
-import 'package:first_app/History.dart';
-import 'package:first_app/Notification.dart';
-import 'package:first_app/Profile.dart';
-import 'package:first_app/Search.dart';
-import 'package:first_app/Settings.dart';
+import 'dart:async'; // For Timer
+import 'Help.dart';
+import 'History.dart';
+import 'Notification.dart';
+import 'profile.dart';
+import 'Search.dart';
+import 'Settings.dart';
 
-import 'package:first_app/side_menu.dart';
+import 'side_menu.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fluttertoast/fluttertoast.dart';
-import 'package:http/http.dart' as http;
-import 'services/ApiService.dart'; // Add this import
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'services/ApiService.dart';
+import 'services/AuthService.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -24,7 +26,6 @@ class _HomePageState extends State<HomePage>
     with SingleTickerProviderStateMixin {
   int _selectedIndex = 0;
   bool _isLoading = false;
-  bool _areAuthButtonsVisible = false;
   bool _isSearching = false;
   bool _isDarkMode = false;
   late AnimationController _animationController;
@@ -32,6 +33,8 @@ class _HomePageState extends State<HomePage>
   final TextEditingController _searchController = TextEditingController();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   Map<String, dynamic>? _userData; // Cache user data to avoid repeated fetches
+  bool _isOnline = false; // Track user's online status
+  Timer? _onlineStatusTimer; // Timer to periodically update online status
 
   final List<Widget> _screens = [
     const Center(child: Text('Home Screen', style: TextStyle(fontSize: 24))),
@@ -41,7 +44,6 @@ class _HomePageState extends State<HomePage>
     const NotificationScreen(),
     const HelpScreen(),
   ];
-
   @override
   void initState() {
     super.initState();
@@ -51,6 +53,48 @@ class _HomePageState extends State<HomePage>
     );
     _pageController = PageController(initialPage: _selectedIndex);
     _fetchUserData(); // Fetch user data once during initialization
+    _setUserOnline(); // Set user as online when app starts
+
+    // Start periodic online status updates every 2 minutes
+    _onlineStatusTimer = Timer.periodic(const Duration(minutes: 2), (timer) {
+      _updateOnlineStatus();
+    });
+  }
+
+  // Set the user as online
+  Future<void> _setUserOnline() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isOnline', true);
+      setState(() {
+        _isOnline = true;
+      });
+    } catch (e) {
+      debugPrint('Error setting user online: $e');
+    }
+  }
+
+  // Update online status periodically
+  Future<void> _updateOnlineStatus() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Check if logged in before updating status
+      final bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+      if (isLoggedIn) {
+        await prefs.setBool('isOnline', true);
+        // Update online status to server
+        await AuthService.updateOnlineStatusToServer(true);
+
+        if (mounted) {
+          setState(() {
+            _isOnline = true;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error updating online status: $e');
+    }
   }
 
   @override
@@ -58,6 +102,11 @@ class _HomePageState extends State<HomePage>
     _animationController.dispose();
     _pageController.dispose();
     _searchController.dispose();
+    _onlineStatusTimer?.cancel(); // Cancel the timer when disposing
+
+    // Don't cancel the global periodic updates since they're managed by AuthService
+    // We only handle our local timer here
+
     super.dispose();
   }
 
@@ -89,7 +138,9 @@ class _HomePageState extends State<HomePage>
           'phone': prefs.getString('phone') ?? '',
           'role': prefs.getString('role') ?? 'livreur',
           'firstName': prefs.getString('firstName') ?? '',
-          'name': prefs.getString('name') ?? '',
+          'name':
+              prefs.getString('name') ??
+              '', // Updated to use 'name' instead of 'LastName'
           'image': prefs.getString('image') ?? '',
         };
 
@@ -152,10 +203,12 @@ class _HomePageState extends State<HomePage>
   Future<void> _saveUserDataToPrefs(Map<String, dynamic> userData) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-
       await prefs.setString('username', userData['username'] ?? '');
       await prefs.setString('firstName', userData['firstName'] ?? '');
-      await prefs.setString('name', userData['name'] ?? '');
+      await prefs.setString(
+        'name',
+        userData['name'] ?? '',
+      ); // Updated to use 'name' instead of 'LastName'
       await prefs.setString('email', userData['email'] ?? '');
       await prefs.setString('phone', userData['phone'] ?? '');
       await prefs.setString('role', userData['role'] ?? 'livreur');
@@ -169,31 +222,8 @@ class _HomePageState extends State<HomePage>
       debugPrint('Error saving user data to prefs: $e');
     }
   }
-
-  void _onItemTapped(int index) {
-    if (index >= _screens.length) {
-      debugPrint('Invalid bottom nav index: $index');
-      return;
-    }
-    debugPrint('Bottom nav tapped: $index');
-    setState(() {
-      _isLoading = true;
-      _selectedIndex = index;
-      if (_isSearching) {
-        _stopSearching();
-      }
-    });
-    _pageController.animateToPage(
-      index,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeInOut,
-    );
-    Future.delayed(const Duration(milliseconds: 300), () {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    });
-  }
+  // Navigation is now handled directly by PageView onPageChanged
+  // This function is kept for reference but may be removed
 
   void _handleMenuSelection(int index) {
     if (index >= _screens.length) {
@@ -219,17 +249,8 @@ class _HomePageState extends State<HomePage>
       }
     });
   }
-
-  void _toggleAuthButtons() {
-    setState(() {
-      _areAuthButtonsVisible = !_areAuthButtonsVisible;
-      if (_areAuthButtonsVisible) {
-        _animationController.forward();
-      } else {
-        _animationController.reverse();
-      }
-    });
-  }
+  // Auth buttons are now managed differently
+  // This function is kept for reference but may be removed
 
   void _toggleTheme() {
     setState(() {
@@ -286,7 +307,9 @@ class _HomePageState extends State<HomePage>
                   phone: data['phone']?.toString() ?? '',
                   role: data['role']?.toString() ?? '',
                   firstName: data['firstName']?.toString() ?? '',
-                  name: data['name']?.toString() ?? '',
+                  name:
+                      data['name']?.toString() ??
+                      '', // Updated to use 'name' instead of 'LastName'
                   imageUrl: data['image']?.toString() ?? '',
                 ),
           ),
@@ -314,13 +337,51 @@ class _HomePageState extends State<HomePage>
   }
 
   void _handleLogout() async {
+    // Show confirmation dialog
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Confirm Logout'),
+          content: const Text('Are you sure you want to disconnect?'),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Cancel'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            TextButton(
+              child: const Text('Logout', style: TextStyle(color: Colors.red)),
+              onPressed: () async {
+                Navigator.of(context).pop();
+                await _performLogout();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  } // Actually perform the logout
+
+  Future<void> _performLogout() async {
+    setState(() => _isLoading = true);
     try {
-      final prefs = await SharedPreferences.getInstance();
-      // Clear all session data
-      await prefs.clear();
+      // Cancel our local timer first
+      _onlineStatusTimer?.cancel();
+
+      // Set user as offline on the server
+      await AuthService.updateOnlineStatusToServer(false);
+
+      // Stop periodic status updates from AuthService
+      AuthService.stopPeriodicOnlineUpdates();
+
+      // Complete logout to clear all user data
+      await AuthService.logout();
 
       Fluttertoast.showToast(
-        msg: 'Successfully logged out',
+        msg: 'Successfully disconnected',
         toastLength: Toast.LENGTH_SHORT,
         gravity: ToastGravity.BOTTOM,
         backgroundColor: Colors.green,
@@ -422,16 +483,36 @@ class _HomePageState extends State<HomePage>
                 tooltip: 'Logout',
                 onPressed: _handleLogout,
               ),
-              CircleAvatar(
-                radius: 15,
-                backgroundImage:
-                    _userData != null &&
-                            _userData!['image'] != null &&
-                            _userData!['image'].isNotEmpty
-                        ? NetworkImage(_userData!['image'])
-                        : const AssetImage('assets/default_profile.jpg')
-                            as ImageProvider,
-                child: GestureDetector(onTap: _navigateToProfile),
+              Stack(
+                children: [
+                  GestureDetector(
+                    onTap: _navigateToProfile,
+                    child: CircleAvatar(
+                      radius: 15,
+                      backgroundImage:
+                          _userData != null &&
+                                  _userData!['image'] != null &&
+                                  _userData!['image'].isNotEmpty
+                              ? NetworkImage(_userData!['image'])
+                              : const AssetImage('assets/default_profile.jpg')
+                                  as ImageProvider,
+                    ),
+                  ),
+                  // Online indicator
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: _isOnline ? Colors.green : Colors.grey,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 1),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ],

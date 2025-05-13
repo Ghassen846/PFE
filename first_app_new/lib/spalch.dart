@@ -2,9 +2,107 @@ import 'package:flutter/material.dart';
 import 'package:location/location.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fluttertoast/fluttertoast.dart';
+import 'services/AuthService.dart';
+import 'services/ApiService.dart';
 
 class SplashScreen extends StatelessWidget {
   const SplashScreen({super.key});
+
+  // Check if user is already logged in and update online status
+  Future<void> checkLoginStatus(BuildContext context) async {
+    try {
+      final bool isLoggedIn = await AuthService.isLoggedIn();
+
+      if (isLoggedIn) {
+        debugPrint('User already logged in, updating online status...');
+        // Verify server connection before updating online status
+        final bool serverConnected = await _verifyServerConnection();
+        if (serverConnected) {
+          // Set user as online
+          await AuthService.setOnlineStatus(true);
+          await AuthService.updateOnlineStatusToServer(true);
+
+          // Start periodic status updates
+          AuthService.startPeriodicOnlineUpdates();
+
+          // Navigate to home page
+          if (context.mounted) {
+            Navigator.pushReplacementNamed(context, '/home');
+          }
+        } else {
+          debugPrint('Server connection failed, redirecting to login page');
+          await initializeLocationAndSave(context);
+          if (context.mounted) {
+            Navigator.pushReplacementNamed(context, '/login');
+          }
+        }
+      } else {
+        // User is not logged in, continue with location check
+        await initializeLocationAndSave(context);
+        if (context.mounted) {
+          Navigator.pushReplacementNamed(context, '/login');
+        }
+      }
+    } catch (e) {
+      debugPrint('Error checking login status: $e');
+      // Default to login page if there's an error
+      await initializeLocationAndSave(context);
+      if (context.mounted) {
+        Navigator.pushReplacementNamed(context, '/login');
+      }
+    }
+  }
+
+  // Additional method to verify connection to backend before marking user as online
+  Future<bool> _verifyServerConnection() async {
+    try {
+      // First check basic internet connectivity
+      final hasInternet = await ApiService.hasInternetConnection();
+      if (!hasInternet) {
+        debugPrint('No internet connection detected');
+        Fluttertoast.showToast(
+          msg: 'No internet connection. Please check your network settings.',
+          toastLength: Toast.LENGTH_LONG,
+          backgroundColor: Colors.red,
+        );
+        return false;
+      }
+
+      // Then try pinging the server directly
+      final serverReachable = await ApiService.pingServer();
+      if (!serverReachable) {
+        debugPrint('Server is unreachable');
+        Fluttertoast.showToast(
+          msg: 'Server is currently unavailable. Please try again later.',
+          toastLength: Toast.LENGTH_LONG,
+          backgroundColor: Colors.orange,
+        );
+        return false;
+      }
+
+      // Finally, try authenticated API call
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getString('userId');
+
+      if (userId == null || userId.isEmpty) {
+        debugPrint('No user ID found in preferences');
+        return false;
+      }
+
+      final response = await ApiService.get('user/profile');
+
+      if (response.containsKey('error')) {
+        debugPrint('Error verifying connection: ${response['error']}');
+        return false;
+      }
+
+      // All checks passed, connection successful
+      return true;
+    } catch (e) {
+      debugPrint('Failed to verify server connection: $e');
+      return false;
+    }
+  }
 
   Future<void> initializeLocationAndSave(BuildContext context) async {
     try {
@@ -175,10 +273,7 @@ class SplashScreen extends StatelessWidget {
                 ),
                 child: TextButton(
                   onPressed: () async {
-                    await initializeLocationAndSave(context);
-                    if (context.mounted) {
-                      Navigator.pushReplacementNamed(context, '/login');
-                    }
+                    await checkLoginStatus(context);
                   },
                   child: const Text(
                     "Get Started",

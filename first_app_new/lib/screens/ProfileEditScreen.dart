@@ -21,10 +21,16 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   late TextEditingController _phoneController;
   late TextEditingController _usernameController;
 
+  // Add controllers for password fields
+  late TextEditingController _currentPasswordController;
+  late TextEditingController _newPasswordController;
+  late TextEditingController _confirmPasswordController;
+
   String? _imageUrl;
   File? _selectedImage;
   bool _isLoading = false;
   bool _dataLoaded = false;
+  bool _showPasswordFields = false; // To toggle password change UI
 
   @override
   void initState() {
@@ -35,6 +41,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     _phoneController = TextEditingController();
     _usernameController = TextEditingController();
 
+    // Initialize password controllers
+    _currentPasswordController = TextEditingController();
+    _newPasswordController = TextEditingController();
+    _confirmPasswordController = TextEditingController();
+
     if (widget.initialData != null) {
       _loadInitialData(widget.initialData!);
     } else {
@@ -44,7 +55,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
   void _loadInitialData(Map<String, dynamic> data) {
     _firstNameController.text = data['firstName'] ?? '';
-    _nameController.text = data['name'] ?? '';
+    _nameController.text =
+        data['name'] ??
+        ''; // Changed from 'LastName' to 'name' to match backend
     _emailController.text = data['email'] ?? '';
     _phoneController.text = data['phone'] ?? '';
     _usernameController.text = data['username'] ?? '';
@@ -58,7 +71,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       // First try to get from SharedPreferences for faster loading
       final prefs = await SharedPreferences.getInstance();
       _firstNameController.text = prefs.getString('firstName') ?? '';
-      _nameController.text = prefs.getString('name') ?? '';
+      _nameController.text = prefs.getString('LastName') ?? '';
       _emailController.text = prefs.getString('email') ?? '';
       _phoneController.text = prefs.getString('phone') ?? '';
       _usernameController.text = prefs.getString('username') ?? '';
@@ -70,7 +83,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         setState(() {
           _firstNameController.text =
               userData['firstName'] ?? _firstNameController.text;
-          _nameController.text = userData['name'] ?? _nameController.text;
+          _nameController.text = userData['LastName'] ?? _nameController.text;
           _emailController.text = userData['email'] ?? _emailController.text;
           _phoneController.text = userData['phone'] ?? _phoneController.text;
           _usernameController.text =
@@ -151,6 +164,65 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     }
   }
 
+  // Change password method
+  Future<void> _changePassword() async {
+    // Validate only password fields
+    if (_currentPasswordController.text.isEmpty ||
+        _newPasswordController.text.isEmpty ||
+        _confirmPasswordController.text.isEmpty) {
+      ProfileUpdateService.showToast(
+        message: 'Please fill all password fields',
+        isError: true,
+      );
+      return;
+    }
+
+    if (_newPasswordController.text.length < 6) {
+      ProfileUpdateService.showToast(
+        message: 'New password must be at least 6 characters',
+        isError: true,
+      );
+      return;
+    }
+
+    if (_newPasswordController.text != _confirmPasswordController.text) {
+      ProfileUpdateService.showToast(
+        message: 'New passwords do not match',
+        isError: true,
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      final success = await ProfileUpdateService.changePassword(
+        currentPassword: _currentPasswordController.text,
+        newPassword: _newPasswordController.text,
+      );
+
+      if (success) {
+        ProfileUpdateService.showToast(
+          message: 'Password changed successfully!',
+        );
+        // Clear fields and hide the password section
+        setState(() {
+          _currentPasswordController.clear();
+          _newPasswordController.clear();
+          _confirmPasswordController.clear();
+          _showPasswordFields = false;
+        });
+      }
+    } catch (e) {
+      ProfileUpdateService.showToast(
+        message: 'Failed to change password: ${e.toString()}',
+        isError: true,
+      );
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
   @override
   void dispose() {
     _firstNameController.dispose();
@@ -158,6 +230,12 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     _emailController.dispose();
     _phoneController.dispose();
     _usernameController.dispose();
+
+    // Dispose password controllers
+    _currentPasswordController.dispose();
+    _newPasswordController.dispose();
+    _confirmPasswordController.dispose();
+
     super.dispose();
   }
 
@@ -232,7 +310,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                                     : null,
                       ),
                       _buildTextField(
-                        label: 'Full Name',
+                        label: 'Last Name',
                         controller: _nameController,
                         validator:
                             (val) =>
@@ -282,6 +360,95 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
                       const SizedBox(height: 20),
 
+                      // Change Password Button
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _showPasswordFields = !_showPasswordFields;
+                            if (!_showPasswordFields) {
+                              // Clear password fields when hiding
+                              _currentPasswordController.clear();
+                              _newPasswordController.clear();
+                              _confirmPasswordController.clear();
+                            }
+                          });
+                        },
+                        icon: Icon(
+                          _showPasswordFields
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                        ),
+                        label: Text(
+                          _showPasswordFields
+                              ? 'Hide Password Fields'
+                              : 'Change Password',
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Theme.of(context).primaryColor,
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size(200, 45),
+                        ),
+                      ),
+
+                      // Password change fields
+                      if (_showPasswordFields) ...[
+                        const SizedBox(height: 20),
+                        _buildTextField(
+                          label: 'Current Password',
+                          controller: _currentPasswordController,
+                          validator:
+                              (val) =>
+                                  val!.isEmpty
+                                      ? 'Please enter your current password'
+                                      : null,
+                          obscureText: true,
+                          prefixIcon: Icons.lock_outline,
+                        ),
+                        _buildTextField(
+                          label: 'New Password',
+                          controller: _newPasswordController,
+                          validator: (val) {
+                            if (val!.isEmpty)
+                              return 'Please enter a new password';
+                            if (val.length < 6)
+                              return 'Password must be at least 6 characters';
+                            return null;
+                          },
+                          obscureText: true,
+                          prefixIcon: Icons.lock,
+                        ),
+                        _buildTextField(
+                          label: 'Confirm New Password',
+                          controller: _confirmPasswordController,
+                          validator: (val) {
+                            if (val!.isEmpty) {
+                              return 'Please confirm your new password';
+                            }
+                            if (val != _newPasswordController.text) {
+                              return 'Passwords do not match';
+                            }
+                            return null;
+                          },
+                          obscureText: true,
+                          prefixIcon: Icons.lock,
+                        ),
+                        const SizedBox(height: 20),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: _isLoading ? null : _changePassword,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            child: const Text('Save New Password'),
+                          ),
+                        ),
+                      ],
+
+                      const SizedBox(height: 20),
+
                       if (_isLoading)
                         const Padding(
                           padding: EdgeInsets.all(16.0),
@@ -300,6 +467,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     required String? Function(String?)? validator,
     TextInputType? keyboardType,
     IconData? prefixIcon,
+    bool obscureText = false,
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
@@ -313,6 +481,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         validator: validator,
         keyboardType: keyboardType,
         enabled: !_isLoading,
+        obscureText: obscureText,
       ),
     );
   }

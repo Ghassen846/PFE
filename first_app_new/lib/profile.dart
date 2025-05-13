@@ -1,10 +1,12 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fluttertoast/fluttertoast.dart';
-import 'package:http/http.dart' as http;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 // Add these imports
 import 'screens/ProfileEditScreen.dart' as profile_edit;
+import 'services/AuthService.dart';
 
 class ProfileScreen extends StatefulWidget {
   final String username;
@@ -38,9 +40,10 @@ class ProfileScreenState extends State<ProfileScreen> {
   late TextEditingController _phoneController;
   late TextEditingController _usernameController;
   String? _imageUrl;
-  final bool _isLoading = false;
-
-  @override
+  bool _isLoading = false;
+  bool _isOnline = true; // User is online by default
+  Timer?
+  _statusCheckTimer; // Timer to periodically check online status  @override
   void initState() {
     super.initState();
     _firstNameController = TextEditingController(text: widget.firstName);
@@ -50,6 +53,24 @@ class ProfileScreenState extends State<ProfileScreen> {
     _usernameController = TextEditingController(text: widget.username);
     _imageUrl = widget.imageUrl;
     _loadStoredData();
+    _checkOnlineStatus();
+
+    // Set up periodic online status check every 30 seconds
+    _statusCheckTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      _checkOnlineStatus();
+    });
+  }
+
+  // Check if the user is online
+  Future<void> _checkOnlineStatus() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _isOnline = prefs.getBool('isOnline') ?? true;
+      });
+    } catch (e) {
+      debugPrint('Error checking online status: $e');
+    }
   }
 
   @override
@@ -59,6 +80,7 @@ class ProfileScreenState extends State<ProfileScreen> {
     _emailController.dispose();
     _phoneController.dispose();
     _usernameController.dispose();
+    _statusCheckTimer?.cancel(); // Cancel the timer when disposing
     super.dispose();
   }
 
@@ -77,7 +99,9 @@ class ProfileScreenState extends State<ProfileScreen> {
             (context) => profile_edit.ProfileEditScreen(
               initialData: {
                 'firstName': _firstNameController.text,
-                'name': _nameController.text,
+                'name':
+                    _nameController
+                        .text, // Updated to use 'name' instead of 'LastName'
                 'email': _emailController.text,
                 'phone': _phoneController.text,
                 'username': _usernameController.text,
@@ -92,7 +116,9 @@ class ProfileScreenState extends State<ProfileScreen> {
       setState(() {
         _firstNameController.text =
             result['firstName'] ?? _firstNameController.text;
-        _nameController.text = result['name'] ?? _nameController.text;
+        _nameController.text =
+            result['name'] ??
+            _nameController.text; // Updated to use 'name' instead of 'LastName'
         _emailController.text = result['email'] ?? _emailController.text;
         _phoneController.text = result['phone'] ?? _phoneController.text;
         _usernameController.text =
@@ -123,13 +149,36 @@ class ProfileScreenState extends State<ProfileScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Center(
-                      child: CircleAvatar(
-                        radius: 50,
-                        backgroundImage:
-                            (_imageUrl != null && _imageUrl!.isNotEmpty)
-                                ? NetworkImage(_imageUrl!)
-                                : const AssetImage('assets/default_profile.jpg')
-                                    as ImageProvider,
+                      child: Stack(
+                        children: [
+                          CircleAvatar(
+                            radius: 50,
+                            backgroundImage:
+                                (_imageUrl != null && _imageUrl!.isNotEmpty)
+                                    ? NetworkImage(_imageUrl!)
+                                    : const AssetImage(
+                                          'assets/default_profile.jpg',
+                                        )
+                                        as ImageProvider,
+                          ),
+                          // Online indicator
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              width: 15,
+                              height: 15,
+                              decoration: BoxDecoration(
+                                color: _isOnline ? Colors.green : Colors.grey,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Colors.white,
+                                  width: 2,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 20),
@@ -148,6 +197,31 @@ class ProfileScreenState extends State<ProfileScreen> {
                                     .role, // Default to 'livreur' if role is empty
                       ),
                       isEditable: false,
+                    ),
+
+                    const SizedBox(height: 30),
+
+                    // Logout button
+                    Center(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 12,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        icon: const Icon(Icons.logout),
+                        label: const Text(
+                          'Disconnect',
+                          style: TextStyle(fontSize: 16),
+                        ),
+                        onPressed: _showLogoutConfirmation,
+                      ),
                     ),
                   ],
                 ),
@@ -186,5 +260,76 @@ class ProfileScreenState extends State<ProfileScreen> {
         ],
       ),
     );
+  }
+
+  // Show logout confirmation dialog
+  Future<void> _showLogoutConfirmation() async {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Confirm Logout'),
+          content: const Text('Are you sure you want to disconnect?'),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Cancel'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            TextButton(
+              child: const Text('Logout', style: TextStyle(color: Colors.red)),
+              onPressed: () async {
+                Navigator.of(context).pop();
+                await _handleLogout();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // Handle logout process
+  Future<void> _handleLogout() async {
+    try {
+      // Show loading indicator
+      setState(() => _isLoading = true);
+
+      // Cancel status check timer
+      _statusCheckTimer?.cancel();
+
+      // Set user as offline on the server
+      await AuthService.updateOnlineStatusToServer(false);
+
+      // Stop periodic status updates from AuthService
+      AuthService.stopPeriodicOnlineUpdates();
+
+      // Complete logout to clear all user data
+      await AuthService.logout();
+
+      // Show success message
+      Fluttertoast.showToast(
+        msg: "Disconnected successfully",
+        toastLength: Toast.LENGTH_SHORT,
+        gravity: ToastGravity.BOTTOM,
+        backgroundColor: Colors.green,
+        textColor: Colors.white,
+      );
+
+      // Navigate to login screen
+      Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+    } catch (e) {
+      debugPrint('Error during logout: $e');
+      Fluttertoast.showToast(
+        msg: "Error disconnecting: $e",
+        backgroundColor: Colors.red,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 }

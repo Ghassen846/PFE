@@ -44,27 +44,40 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   void _navigateToHome() {
+    // Start periodic online status updates
+    AuthService.startPeriodicOnlineUpdates();
+
+    // Set user as online
+    AuthService.setOnlineStatus(true);
+    AuthService.updateOnlineStatusToServer(true);
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (context) => const HomePage()),
     );
-  } // Handle login process
+  }
 
+  // Enhanced login method with proper online status handling
   Future<void> _login() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
 
       try {
-        // Clear any existing tokens first
-        await AuthService.logout();
+        // Get login fields
+        final String email = _emailController.text.trim();
+        final String password = _passwordController.text;
 
-        // Attempt login
-        final response = await AuthService.loginUser(
-          email: _emailController.text.trim(),
-          password: _passwordController.text,
+        debugPrint("Attempting login with email: $email");
+
+        // Attempt login with AuthService
+        final Map<String, dynamic> response = await AuthService.loginUser(
+          email: email,
+          password: password,
         );
 
+        // Check for error in response
         if (response.containsKey('error')) {
+          debugPrint("Login error: ${response['error']}");
           Fluttertoast.showToast(
             msg: "Login failed: ${response['error']}",
             backgroundColor: Colors.red,
@@ -74,10 +87,9 @@ class _LoginPageState extends State<LoginPage> {
           return;
         }
 
-        // Double check that we got a token
-        final token = await AuthService.getToken();
-        if (token == null) {
-          debugPrint("No token received from login response");
+        // Check for token
+        if (!response.containsKey('token')) {
+          debugPrint("No token received in login response");
           Fluttertoast.showToast(
             msg: "Login failed: Authentication error",
             backgroundColor: Colors.red,
@@ -91,6 +103,13 @@ class _LoginPageState extends State<LoginPage> {
 
         // Save user session data
         await AuthService.saveUserSession(response);
+
+        // Update online status locally and on server
+        await AuthService.setOnlineStatus(true);
+        await AuthService.updateOnlineStatusToServer(true);
+
+        // Start periodic status updates
+        AuthService.startPeriodicOnlineUpdates();
 
         // Show success message
         Fluttertoast.showToast(

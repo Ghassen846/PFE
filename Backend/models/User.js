@@ -58,7 +58,7 @@ const userSchema = new mongoose.Schema({
   role: {
     type: String,
     enum: ['client', 'livreur', 'admin'],
-    default: 'client' // Default role is client
+    default: 'livreur' // Default role is client
   },
   vehiculetype: {
     type: String,
@@ -75,9 +75,15 @@ const userSchema = new mongoose.Schema({
   status: {
     type: String,
     enum: ['available', 'unavailable'], // Example statuses
-    required: function () {
-      return this.role === 'livreur'; // Required only for livreur
-    }
+    default: 'unavailable'
+  },
+  isOnline: {
+    type: Boolean,
+    default: false
+  },
+  lastActive: {
+    type: Date,
+    default: Date.now
   },
   ratings: {
     type: [

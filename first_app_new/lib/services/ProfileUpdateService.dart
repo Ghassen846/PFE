@@ -43,10 +43,9 @@ class ProfileUpdateService {
       if (userId == null) {
         throw Exception('User ID not found');
       }
-
       final data = {
         'firstName': firstName,
-        'name': name,
+        'name': name, // Changed from 'LastName' to 'name' to match backend
         'email': email,
         'phone': phone,
         'username': username,
@@ -136,9 +135,11 @@ class ProfileUpdateService {
   static Future<void> updateLocalUserData(Map<String, dynamic> userData) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-
       await prefs.setString('firstName', userData['firstName'] ?? '');
-      await prefs.setString('name', userData['name'] ?? '');
+      await prefs.setString(
+        'name',
+        userData['name'] ?? '',
+      ); // Changed from 'LastName' to 'name' to match backend
       await prefs.setString('email', userData['email'] ?? '');
       await prefs.setString('phone', userData['phone'] ?? '');
       await prefs.setString('username', userData['username'] ?? '');
@@ -148,6 +149,36 @@ class ProfileUpdateService {
       }
     } catch (e) {
       debugPrint('Error updating local data: $e');
+    }
+  }
+
+  // Change user password
+  static Future<bool> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    try {
+      final userId = await AuthService.getUserId();
+
+      if (userId == null) {
+        throw Exception('User ID not found');
+      }
+
+      final data = {
+        'currentPassword': currentPassword,
+        'newPassword': newPassword,
+      };
+
+      final response = await ApiService.post('user/change-password', data);
+
+      if (response.containsKey('error')) {
+        throw Exception(response['error'] ?? 'Password change failed');
+      }
+
+      return true;
+    } catch (e) {
+      debugPrint('Error changing password: $e');
+      throw Exception('Failed to change password: $e');
     }
   }
 }

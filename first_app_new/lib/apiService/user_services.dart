@@ -26,7 +26,7 @@ class UserService {
       final fields = {
         'username': username,
         'firstName': firstName,
-        'name': name,
+        'LastName': name,
         'email': email,
         'password': password,
         'phone': phone,
@@ -103,7 +103,7 @@ class UserService {
       await prefs.setString('userId', userData['_id'] ?? '');
       await prefs.setString('username', userData['username'] ?? '');
       await prefs.setString('firstName', userData['firstName'] ?? '');
-      await prefs.setString('name', userData['name'] ?? '');
+      await prefs.setString('LastName', userData['LastName'] ?? '');
       await prefs.setString('email', userData['email'] ?? '');
       await prefs.setString('phone', userData['phone'] ?? '');
       await prefs.setString('role', userData['role'] ?? 'client');
@@ -239,7 +239,7 @@ class UserService {
       'userId': prefs.getString('userId') ?? '',
       'username': prefs.getString('username') ?? '',
       'firstName': prefs.getString('firstName') ?? '',
-      'name': prefs.getString('name') ?? '',
+      'LastName': prefs.getString('LastName') ?? '',
       'email': prefs.getString('email') ?? '',
       'phone': prefs.getString('phone') ?? '',
       'role': prefs.getString('role') ?? '',

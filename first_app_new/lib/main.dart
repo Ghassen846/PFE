@@ -1,10 +1,16 @@
-import 'package:first_app/SignUp.dart';
-import 'package:first_app/home.dart';
 import 'package:flutter/material.dart';
+import 'SignUp.dart';
+import 'home.dart';
 import 'login.dart';
 import 'spalch.dart';
+import 'services/AuthService.dart';
 
-void main() => runApp(const MyApp());
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Start periodic online status updates when app starts
+  AuthService.startPeriodicOnlineUpdates();
+  runApp(const MyApp());
+}
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});

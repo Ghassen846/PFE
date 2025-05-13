@@ -34,6 +34,8 @@ class _SignUpPageState extends State<SignUpPage> {
       'livreur'; // Changed default from 'client' to 'livreur'
   File? _profileImage;
   LocationData? _currentLocation;
+  String _selectedVehicleType = 'scooter'; // Default vehicle type
+  List<File> _vehicleDocuments = []; // Store vehicle document files
 
   @override
   void initState() {
@@ -102,6 +104,23 @@ class _SignUpPageState extends State<SignUpPage> {
     }
   }
 
+  // Pick vehicle documents
+  Future<void> _pickVehicleDocuments() async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? document = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1200,
+      maxHeight: 1200,
+      imageQuality: 90,
+    );
+
+    if (document != null) {
+      setState(() {
+        _vehicleDocuments.add(File(document.path));
+      });
+    }
+  }
+
   // Handle signup process
   Future<void> _signUp() async {
     if (_formKey.currentState!.validate()) {
@@ -127,10 +146,12 @@ class _SignUpPageState extends State<SignUpPage> {
           profileImage: _profileImage,
           latitude: _currentLocation?.latitude,
           longitude: _currentLocation?.longitude,
-        );
-
-        // Check response for user data
-        if (response['user'] != null) {
+          vehiculetype:
+              _selectedRole == 'livreur' ? _selectedVehicleType : null,
+          vehicleDocuments:
+              _selectedRole == 'livreur' ? _vehicleDocuments : null,
+        ); // Check response for user data or _id (backend returns data directly)
+        if (response['user'] != null || response['_id'] != null) {
           // Show success message
           Fluttertoast.showToast(
             msg: "Registration successful! Please login.",
@@ -141,6 +162,11 @@ class _SignUpPageState extends State<SignUpPage> {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (context) => const LoginPage()),
+          );
+        } else if (response['error'] != null) {
+          Fluttertoast.showToast(
+            msg: response['error'],
+            backgroundColor: Colors.red,
           );
         } else {
           Fluttertoast.showToast(
@@ -404,6 +430,97 @@ class _SignUpPageState extends State<SignUpPage> {
                           });
                         },
                       ),
+
+                      const SizedBox(height: 16),
+
+                      // Vehicle type selection (only visible for livreurs)
+                      if (_selectedRole == 'livreur')
+                        Column(
+                          children: [
+                            DropdownButtonFormField<String>(
+                              value: _selectedVehicleType,
+                              decoration: const InputDecoration(
+                                labelText: 'Vehicle Type',
+                                prefixIcon: Icon(Icons.directions_car),
+                                border: OutlineInputBorder(),
+                              ),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: 'scooter',
+                                  child: Text('Scooter'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'car',
+                                  child: Text('Car'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'motorcycle',
+                                  child: Text('Motorcycle'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'bicycle',
+                                  child: Text('Bicycle'),
+                                ),
+                              ],
+                              onChanged: (value) {
+                                setState(() {
+                                  _selectedVehicleType = value!;
+                                });
+                              },
+                            ),
+
+                            const SizedBox(height: 16),
+
+                            // Vehicle documents upload
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Padding(
+                                  padding: EdgeInsets.only(
+                                    left: 8.0,
+                                    bottom: 8.0,
+                                  ),
+                                  child: Text(
+                                    'Vehicle Documents',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+
+                                // Display selected document count
+                                if (_vehicleDocuments.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 8.0),
+                                    child: Text(
+                                      '${_vehicleDocuments.length} document(s) selected',
+                                      style: TextStyle(
+                                        color: Theme.of(context).primaryColor,
+                                      ),
+                                    ),
+                                  ),
+
+                                // Upload button
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton.icon(
+                                    onPressed: _pickVehicleDocuments,
+                                    icon: const Icon(Icons.upload_file),
+                                    label: const Text(
+                                      'Upload Vehicle Documents',
+                                    ),
+                                    style: OutlinedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
 
                       const SizedBox(height: 24),
 

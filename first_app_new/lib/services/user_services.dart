@@ -31,7 +31,7 @@ class UserService {
         // Update local storage
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('fullName', fullName);
-        await prefs.setString('name', fullName);
+        await prefs.setString('LastName', fullName);
         await prefs.setString('email', email);
         await prefs.setString('phone', phone);
         await prefs.setString('username', username);
@@ -190,7 +190,10 @@ class UserService {
             'firstName',
             userData['firstName']?.toString() ?? '',
           );
-          await prefs.setString('name', userData['name']?.toString() ?? '');
+          await prefs.setString(
+            'LastName',
+            userData['LastName']?.toString() ?? '',
+          );
 
           if (userData['image'] != null) {
             await prefs.setString('image', userData['image'].toString());

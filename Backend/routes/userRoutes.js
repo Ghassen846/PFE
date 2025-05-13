@@ -1,20 +1,18 @@
 import express from 'express';
 import multer from 'multer';
 import {
-  addMaintenance,
-  addUser,
   deleteUser,
   getAllUsers,
   getCurrentUser,
-  getProfile,
   getUserById,
-  getUserProfile,
-  getUsersByRole,
   loginUser,
   rateLivreur,
   registerUser,
   updateUser,
-  updateVehicle
+  updateOnlineStatus,
+  getAllLivreurs,
+  getAvailableLivreurs,
+  changePassword
 } from '../controllers/userController.js';
 import { protect } from '../middleware/auth.js'; // <-- import auth middleware
 import User from "../models/User.js"; // <-- add this import
@@ -39,11 +37,14 @@ router.post('/register', upload.single('profilePicture'), registerUser);
 // Route for user login
 router.post('/login', loginUser);
 
+// Route for updating user online status
+router.post('/update-status', updateOnlineStatus);
+
 // Route for getting user profile by ID
-router.get('/profile/:id', getUserProfile);
+router.get('/profile/:id', getUserById);
 
 // Route for getting current user's profile (for navbar etc)
-router.get('/profile', protect, getProfile);
+router.get('/profile', protect, getCurrentUser);
 
 // --- Add these routes for image upload/delete ---
 
@@ -100,18 +101,18 @@ router.delete(
   }
 );
 
-// Route for updating vehicle
-router.put('/livreur/:id/vehicle', updateVehicle);
+// Route for updating vehicle (commented out as function isn't implemented yet)
+// router.put('/livreur/:id/vehicle', updateVehicle);
 
-// Route for adding maintenance
-router.post('/livreur/:id/maintenance', addMaintenance);
+// Route for adding maintenance (commented out as function isn't implemented yet)
+// router.post('/livreur/:id/maintenance', addMaintenance);
 
 // CRUD Routes for User Management
 // Get all users
 router.get('/get', protect, getAllUsers);
 
-// Get users by role
-router.get('/role/:role', protect, getUsersByRole);
+// Get users by role (using getAllLivreurs as a substitute for now)
+router.get('/role/livreur', protect, getAllLivreurs);
 
 // Update user routes
 router.put('/:id', protect, updateUser);
@@ -120,8 +121,8 @@ router.put('/update/:id', protect, updateUser); // Add this aliased route to mat
 // Delete user
 router.delete('/:id', protect, deleteUser);
 
-// Add user (admin function)
-router.post('/add', protect, addUser);
+// Add user (admin function) - using registerUser instead of addUser
+router.post('/add', protect, registerUser);
 
 // Get user by ID
 router.get('/get/:id', getUserById);
@@ -131,5 +132,8 @@ router.post('/livreur/:id/rate', rateLivreur);
 
 // Get current user
 router.get('/me', protect, getCurrentUser);
+
+// Change password route
+router.post('/change-password', protect, changePassword);
 
 export default router;

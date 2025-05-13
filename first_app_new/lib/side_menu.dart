@@ -1,7 +1,5 @@
-
-import 'package:first_app/menu.dart';
-
-import 'package:first_app/side_menu_title.dart';
+import 'package:first_app_new/menu.dart';
+import 'package:first_app_new/side_menu_title.dart';
 import 'package:flutter/material.dart';
 
 class SideMenu extends StatefulWidget {
