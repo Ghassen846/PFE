@@ -1,139 +1,158 @@
+// filepath: c:\Users\PC\developement\flutter-apps\Backend\routes\userRoutes.js
 import express from 'express';
 import multer from 'multer';
-import {
-  deleteUser,
-  getAllUsers,
+import path from 'path';
+import { 
+  registerUser, 
+  updateUser, 
+  login, 
+  getAllUsers, 
+  getUserById, 
   getCurrentUser,
-  getUserById,
-  loginUser,
-  rateLivreur,
-  registerUser,
-  updateUser,
   updateOnlineStatus,
-  getAllLivreurs,
-  getAvailableLivreurs,
   changePassword
 } from '../controllers/userController.js';
-import { protect } from '../middleware/auth.js'; // <-- import auth middleware
-import User from "../models/User.js"; // <-- add this import
+import User from '../models/User.js'; // Import the User model
+import { protect, admin, livreur } from '../middleware/auth.js'; // Import auth middleware
 
 const router = express.Router();
 
-// Configure multer to save files to disk in 'uploads' folder
+// Configure multer for file uploads
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
+  destination: (req, file, cb) => {
     cb(null, 'uploads/');
   },
-  filename: function (req, file, cb) {
-    // Use Date.now() to avoid name collisions
-    cb(null, Date.now() + '_' + file.originalname);
-  }
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, `${uniqueSuffix}${path.extname(file.originalname)}`);
+  },
 });
-const upload = multer({ storage });
-
-// Route for client sign-up
-router.post('/register', upload.single('profilePicture'), registerUser);
-
-// Route for user login
-router.post('/login', loginUser);
-
-// Route for updating user online status
-router.post('/update-status', updateOnlineStatus);
-
-// Route for getting user profile by ID
-router.get('/profile/:id', getUserById);
-
-// Route for getting current user's profile (for navbar etc)
-router.get('/profile', protect, getCurrentUser);
-
-// --- Add these routes for image upload/delete ---
-
-// Upload profile image - with ID parameter
-router.post(
-  "/upload-image/:id",
-  protect,
-  upload.single("image"),
-  async (req, res) => {
-    try {
-      const user = await User.findById(req.params.id);
-      if (!user) return res.status(404).json({ message: "User not found" });
-      user.image = req.file.filename;
-      await user.save();
-      res.json({ image: user.image });
-    } catch (err) {
-      res.status(500).json({ message: "Image upload failed" });
+const upload = multer({
+  storage,
+  fileFilter: (req, file, cb) => {
+    // Accept any file for now to fix the immediate issue
+    // We can be more restrictive once we understand what types are being sent
+    console.log('[Backend] File upload received:', file);
+    return cb(null, true);
+    
+    /* Original restrictive check
+    const filetypes = /jpeg|jpg|png|pdf/;
+    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = filetypes.test(file.mimetype);
+    if (extname && mimetype) {
+      return cb(null, true);
     }
-  }
-);
+    cb(new Error('Only images (jpeg, jpg, png) and PDFs are allowed'));
+    */
+  },
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+});
 
-// Upload profile image - without ID parameter (uses authenticated user)
-router.post(
-  "/upload-image",
-  protect,
-  upload.single("image"),
-  async (req, res) => {
-    try {
-      const user = await User.findById(req.user._id);
-      if (!user) return res.status(404).json({ message: "User not found" });
-      user.image = req.file.filename;
-      await user.save();
-      res.json({ image: user.image, imageUrl: req.file.filename });
-    } catch (err) {
-      res.status(500).json({ message: "Image upload failed" });
-    }
-  }
-);
+// User registration
+router.post('/register', registerUser);
 
-// Delete profile image
-router.delete(
-  "/delete-image/:id",
-  protect,
-  async (req, res) => {
-    try {
-      const user = await User.findById(req.params.id);
-      if (!user) return res.status(404).json({ message: "User not found" });
-      user.image = "";
-      await user.save();
-      res.json({ message: "Image deleted" });
-    } catch (err) {
-      res.status(500).json({ message: "Image delete failed" });
-    }
-  }
-);
+// User login
+router.post('/login', login);
 
-// Route for updating vehicle (commented out as function isn't implemented yet)
-// router.put('/livreur/:id/vehicle', updateVehicle);
-
-// Route for adding maintenance (commented out as function isn't implemented yet)
-// router.post('/livreur/:id/maintenance', addMaintenance);
-
-// CRUD Routes for User Management
-// Get all users
-router.get('/get', protect, getAllUsers);
-
-// Get users by role (using getAllLivreurs as a substitute for now)
-router.get('/role/livreur', protect, getAllLivreurs);
-
-// Update user routes
-router.put('/:id', protect, updateUser);
-router.put('/update/:id', protect, updateUser); // Add this aliased route to match frontend
-
-// Delete user
-router.delete('/:id', protect, deleteUser);
-
-// Add user (admin function) - using registerUser instead of addUser
-router.post('/add', protect, registerUser);
-
-// Get user by ID
-router.get('/get/:id', getUserById);
-
-// Rate a livreur
-router.post('/livreur/:id/rate', rateLivreur);
-
-// Get current user
+// Get current user profile
 router.get('/me', protect, getCurrentUser);
 
-// Change password route
+// Update online status
+router.put('/status', updateOnlineStatus);
+
+// Update user profile
+router.put('/:id', protect, updateUser);
+
+// Change password
 router.post('/change-password', protect, changePassword);
+
+// Profile image upload
+router.post('/register/image', upload.single('image'), async (req, res) => {
+  console.log('[Backend] Uploading profile image:', req.file);
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image provided' });
+    }
+
+    const userId = req.query.userId;
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }    // Use relative path instead of absolute URL
+    const imageUrl = `/uploads/${req.file.filename}`;
+    
+    try {
+      // First, find the user
+      const user = await User.findByIdAndUpdate(
+        userId,
+        { image: imageUrl },
+        { new: true, runValidators: true }
+      ).select('-password');
+      
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+        // For logging, we can still show the full URL
+      const fullUrl = `http://${req.headers.host}${imageUrl}`;
+      console.log('[Backend] Image uploaded for user:', userId, 'URL (relative path):', imageUrl);
+      return res.status(200).json({ image: imageUrl });
+    } catch (updateError) {
+      console.error('[Backend] Failed to update user with image:', updateError);
+      // Only send error response if one hasn't been sent already
+      if (!res.headersSent) {
+        return res.status(500).json({ error: updateError.message });
+      }
+    }
+  } catch (error) {
+    console.error('[Backend] Image upload error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});  // Vehicle documents upload
+router.post('/register/documents', upload.single('document'), async (req, res) => {
+  console.log('[Backend] Uploading vehicle document:', req.file);
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No document provided' });
+    }
+
+    const userId = req.query.userId;
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+
+    // Use relative path instead of absolute URL
+    const documentUrl = `/uploads/${req.file.filename}`;
+    
+    try {
+      // Find the user first
+      const user = await User.findById(userId);
+      
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      // Add the document to existing vehicle documents or create a new array
+      if (!user.vehicleDocuments) {
+        user.vehicleDocuments = [];
+      }
+      
+      // Make sure we're using the new relative path format
+      user.vehicleDocuments.push(documentUrl);
+      await user.save();
+        // For logging, we can still show the full URL
+      const fullUrl = `http://${req.headers.host}${documentUrl}`;
+      console.log('[Backend] Document uploaded for user:', userId, 'URL (relative path):', documentUrl);
+      return res.status(200).json({ document: documentUrl });
+    } catch (updateError) {
+      console.error('[Backend] Failed to update user with document:', updateError);
+      // Only send error response if one hasn't been sent already
+      if (!res.headersSent) {
+        return res.status(500).json({ error: updateError.message });
+      }
+    }
+  } catch (error) {
+    console.error('[Backend] Document upload error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 export default router;

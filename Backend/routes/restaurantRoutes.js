@@ -8,6 +8,7 @@ import {
   rateRestaurant,
   updateRestaurant
 } from '../controllers/restaurantController.js';
+import { protect, admin } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -23,11 +24,11 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-router.get('/', getRestaurants); // Get all restaurants
-router.get('/:id', getRestaurantById); // Get restaurant by ID
-router.post('/', upload.single('image'), createRestaurant); // Create a new restaurant with image upload
-router.put('/:id', upload.single('image'), updateRestaurant); // Update a restaurant with image upload
-router.delete('/:id', deleteRestaurant); // Delete a restaurant
-router.post('/:id/rate', rateRestaurant); // Rate a restaurant
+router.get('/', getRestaurants); // Get all restaurants (public access)
+router.get('/:id', getRestaurantById); // Get restaurant by ID (public access)
+router.post('/', protect, admin, upload.single('image'), createRestaurant); // Create a new restaurant with image upload (admin only)
+router.put('/:id', protect, admin, upload.single('image'), updateRestaurant); // Update a restaurant with image upload (admin only)
+router.delete('/:id', protect, admin, deleteRestaurant); // Delete a restaurant (admin only)
+router.post('/:id/rate', protect, rateRestaurant); // Rate a restaurant (authenticated users)
 
 export default router;

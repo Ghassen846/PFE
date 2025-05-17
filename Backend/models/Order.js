@@ -156,6 +156,35 @@ orderSchema.set('toJSON', {
   }
 });
 
+orderSchema.post('save', async function (doc, next) {
+  try {
+    if (doc.livreur && this.isModified('livreur')) {
+      const Delivery = mongoose.model('Delivery');
+      const existingDelivery = await Delivery.findOne({ order: doc._id });
+      
+      if (!existingDelivery) {
+        const delivery = new Delivery({
+          order: doc._id,
+          driver: doc.livreur,
+          client: doc.user,
+          status: 'pending',
+          currentLocation: {
+            latitude: doc.latitude,
+            longitude: doc.longitude,
+            address: 'Order location'
+          }
+        });
+        await delivery.save();
+        console.log(`Created delivery for order ${doc._id}`);
+      }
+    }
+    next();
+  } catch (error) {
+    console.error('Error creating delivery:', error);
+    next(error);
+  }
+});
+
 const Order = mongoose.model('Order', orderSchema);
 
 export default Order;

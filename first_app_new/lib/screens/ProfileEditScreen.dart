@@ -1,12 +1,12 @@
 import 'dart:io';
+import 'package:first_app_new/services/profile_update_service.dart';
+import 'package:first_app_new/services/image_service.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../services/ProfileUpdateService.dart';
 
 class ProfileEditScreen extends StatefulWidget {
   final Map<String, dynamic>? initialData;
-
   const ProfileEditScreen({super.key, this.initialData});
 
   @override
@@ -267,19 +267,16 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                       Stack(
                         alignment: Alignment.bottomRight,
                         children: [
-                          CircleAvatar(
-                            radius: 60,
-                            backgroundImage:
-                                _selectedImage != null
-                                    ? FileImage(_selectedImage!)
-                                    : (_imageUrl != null &&
-                                        _imageUrl!.isNotEmpty)
-                                    ? NetworkImage(_imageUrl!)
-                                    : const AssetImage(
-                                          'assets/default_profile.jpg',
-                                        )
-                                        as ImageProvider<Object>,
-                          ),
+                          _selectedImage != null
+                              ? CircleAvatar(
+                                radius: 60,
+                                backgroundImage: FileImage(_selectedImage!),
+                              )
+                              : ImageService.buildAvatar(
+                                imageUrl: _imageUrl ?? '',
+                                radius: 60,
+                                category: 'user',
+                              ),
                           InkWell(
                             onTap: _pickImage,
                             child: Container(
@@ -345,8 +342,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                         label: 'Phone',
                         controller: _phoneController,
                         validator: (val) {
-                          if (val!.isEmpty)
+                          if (val!.isEmpty) {
                             return 'Please enter your phone number';
+                          }
                           if (!RegExp(
                             r'^(\+216)?[2459][0-9]{7}$',
                           ).hasMatch(val)) {
@@ -408,10 +406,12 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                           label: 'New Password',
                           controller: _newPasswordController,
                           validator: (val) {
-                            if (val!.isEmpty)
+                            if (val!.isEmpty) {
                               return 'Please enter a new password';
-                            if (val.length < 6)
+                            }
+                            if (val.length < 6) {
                               return 'Password must be at least 6 characters';
+                            }
                             return null;
                           },
                           obscureText: true,

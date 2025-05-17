@@ -1,8 +1,7 @@
 import jwt from 'jsonwebtoken';
-import mongoose from 'mongoose';
-import fetch from 'node-fetch';
 import bcrypt from 'bcryptjs';
-import Delivery from '../models/Delivery.js';
+import mongoose from 'mongoose';
+import generateToken from '../utils/generateToken.js';
 import User from '../models/User.js';
 
 // Get all users
@@ -35,10 +34,9 @@ export const getAllUsers = async (req, res) => {
       // Convert Mongoose document to plain object and add address
       const userObj = user.toObject();
       userObj.address = address;
-      
-      // Update image URL if necessary
-      if (userObj.image && !userObj.image.startsWith('http')) {
-        userObj.image = `http://localhost:5000/uploads/${userObj.image.replace(/^uploads[\\/]/, '')}`;
+        // Ensure image path is in the correct format
+      if (userObj.image && !userObj.image.startsWith('/')) {
+        userObj.image = `/uploads/${userObj.image.replace(/^uploads[\\/]/, '')}`;
       }
       
       return userObj;
@@ -67,12 +65,10 @@ export const getUserById = async (req, res) => {
     let address = null;
     if (user.location && user.location.latitude && user.location.longitude) {
       address = await reverseGeocode(user.location.latitude, user.location.longitude);
-    }
-
-    // Fix image URL
+    }    // Fix image URL
     let image = user.image;
-    if (image && !image.startsWith('http')) {
-      image = `http://localhost:5000/uploads/${image.replace(/^uploads[\\/]/, '')}`;
+    if (image && !image.startsWith('/')) {
+      image = `/uploads/${image.replace(/^uploads[\\/]/, '')}`;
     }
 
     const userObj = user.toObject();
@@ -87,8 +83,7 @@ export const getUserById = async (req, res) => {
 };
 
 // Create a new user (registration)
-export const registerUser = async (req, res) => {
-  try {
+export const registerUser = async (req, res) => {  try {
     const {
       username,
       firstName,
@@ -101,9 +96,19 @@ export const registerUser = async (req, res) => {
       status,
     } = req.body;
 
-    // Handle location data
-    const latitude = req.body['location[latitude]'] || req.body.latitude || 0;
-    const longitude = req.body['location[longitude]'] || req.body.longitude || 0;
+    // Handle location data - ensure we convert to numbers
+    let latitude = 0;
+    let longitude = 0;
+    
+    // Check for nested location object first
+    if (req.body.location) {
+      latitude = parseFloat(req.body.location.latitude) || 0;
+      longitude = parseFloat(req.body.location.longitude) || 0;
+    } else {
+      // Handle various formats that might come from the app
+      latitude = parseFloat(req.body['location[latitude]'] || req.body.latitude || 0);
+      longitude = parseFloat(req.body['location[longitude]'] || req.body.longitude || 0);
+    }
 
     // Check for existing email
     const existingEmail = await User.findOne({ email });
@@ -133,14 +138,12 @@ export const registerUser = async (req, res) => {
       vehiculetype: vehiculetype || undefined,
       status: status || 'available', // Default status
       isOnline: true // Set as online when registering
-    });
-
-    // Generate JWT token
+    });    // Generate JWT token
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET || 'your_jwt_secret', {
       expiresIn: '30d',
     });
-
-    // Return user data (excluding password)
+    
+    console.log(`User registered with ID: ${user._id}`);    // Return user data (excluding password)
     const userWithoutPassword = {
       _id: user._id,
       username: user.username,
@@ -156,6 +159,8 @@ export const registerUser = async (req, res) => {
       isOnline: user.isOnline
     };
 
+    console.log(`User registration successful: ${user.email} (ID: ${user._id})`);
+    console.log(`Response data: ${JSON.stringify(userWithoutPassword)}`);
     res.status(201).json(userWithoutPassword);
   } catch (error) {
     console.error('Error registering user:', error);
@@ -221,12 +226,10 @@ export const updateUser = async (req, res) => {
 
     if (!updatedUser) {
       return res.status(404).json({ message: 'User not found after update attempt' });
-    }
-
-    // Fix image URL
+    }    // Fix image URL
     let image = updatedUser.image;
-    if (image && !image.startsWith('http')) {
-      image = `http://localhost:5000/uploads/${image.replace(/^uploads[\\/]/, '')}`;
+    if (image && !image.startsWith('/')) {
+      image = `/uploads/${image.replace(/^uploads[\\/]/, '')}`;
     }
 
     const userObj = updatedUser.toObject();
@@ -259,44 +262,32 @@ export const deleteUser = async (req, res) => {
 };
 
 // Login a user
-export const loginUser = async (req, res) => {
+export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    // Check for empty fields
-    if (!email || !password) {
-      return res.status(400).json({ message: 'Please provide email and password' });
-    }
-
-    // Find the user by email
+    
     const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(401).json({ message: 'Invalid email or password' });
+    if (!user || !(await user.comparePassword(password))) {
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
-
-    // Check if password matches
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(401).json({ message: 'Invalid email or password' });
+      // Fix image URL
+    let imageUrl = null;
+    if (user.image) {
+      if (user.image.startsWith('/')) {
+        imageUrl = user.image;
+      } else {
+        // Make sure to use relative path
+        imageUrl = `/uploads/${user.image.replace(/^uploads[\\/]/, '')}`;
+      }
     }
-
-    // Update online status
+    
+    const token = generateToken(user._id);
+    
+    // Update user to be online
     user.isOnline = true;
     user.lastActive = new Date();
     await user.save();
-
-    // Generate JWT token
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET || 'your_jwt_secret', {
-      expiresIn: '30d',
-    });
-
-    // Fix image URL
-    let image = user.image;
-    if (image && !image.startsWith('http')) {
-      image = `http://localhost:5000/uploads/${image.replace(/^uploads[\\/]/, '')}`;
-    }
-
-    // Return user data without password
+    
     res.status(200).json({
       _id: user._id,
       username: user.username,
@@ -305,13 +296,13 @@ export const loginUser = async (req, res) => {
       email: user.email,
       phone: user.phone,
       role: user.role,
-      image,
+      image: imageUrl,
       token,
-      isOnline: user.isOnline
+      isOnline: true
     });
   } catch (error) {
-    console.error('Error during login:', error);
-    res.status(500).json({ message: 'Failed to login', error: error.message });
+    console.error('Login error:', error);
+    res.status(500).json({ error: error.message });
   }
 };
 
@@ -342,9 +333,7 @@ export const changePassword = async (req, res) => {
     console.error('Error changing password:', error);
     res.status(500).json({ message: 'Failed to change password' });
   }
-};
-
-// Get all livreurs
+};    // Get all livreurs
 export const getAllLivreurs = async (req, res) => {
   try {
     const livreurs = await User.find({ role: 'livreur' }).select('-password');
@@ -358,8 +347,8 @@ export const getAllLivreurs = async (req, res) => {
       
       // Fix image URL
       let image = livreur.image;
-      if (image && !image.startsWith('http')) {
-        image = `http://localhost:5000/uploads/${image.replace(/^uploads[\\/]/, '')}`;
+      if (image && !image.startsWith('/')) {
+        image = `/uploads/${image.replace(/^uploads[\\/]/, '')}`;
       }
       
       const livreurObj = livreur.toObject();
@@ -374,9 +363,7 @@ export const getAllLivreurs = async (req, res) => {
     console.error('Error getting livreurs:', error);
     res.status(500).json({ message: 'Failed to get livreurs' });
   }
-};
-
-// Get all available livreurs
+};    // Get all available livreurs
 export const getAvailableLivreurs = async (req, res) => {
   try {
     const availableLivreurs = await User.find({
@@ -393,8 +380,8 @@ export const getAvailableLivreurs = async (req, res) => {
       
       // Fix image URL
       let image = livreur.image;
-      if (image && !image.startsWith('http')) {
-        image = `http://localhost:5000/uploads/${image.replace(/^uploads[\\/]/, '')}`;
+      if (image && !image.startsWith('/')) {
+        image = `/uploads/${image.replace(/^uploads[\\/]/, '')}`;
       }
       
       const livreurObj = livreur.toObject();
@@ -452,12 +439,10 @@ export const rateLivreur = async (req, res) => {
     }
     livreur.livreurStats.rating = averageRating;
 
-    await livreur.save();
-
-    // Fix image URL
+    await livreur.save();    // Fix image URL
     let image = livreur.image;
-    if (image && !image.startsWith('http')) {
-      image = `http://localhost:5000/uploads/${image.replace(/^uploads[\\/]/, '')}`;
+    if (image && !image.startsWith('/')) {
+      image = `/uploads/${image.replace(/^uploads[\\/]/, '')}`;
     }
 
     const livreurObj = livreur.toObject();
@@ -477,10 +462,9 @@ export const getCurrentUser = async (req, res) => {
     const user = await User.findById(req.user._id).select('-password');
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
-    }
-    let image = user.image;
-    if (image && !/^https?:\/\//.test(image)) {
-      image = `http://localhost:5000/uploads/${image.replace(/^uploads[\\/]/, '')}`;
+    }    let image = user.image;
+    if (image && !image.startsWith('/')) {
+      image = `/uploads/${image.replace(/^uploads[\\/]/, '')}`;
     }
     const userObj = user.toObject();
     // Ensure password is removed even if select didn't work
@@ -496,16 +480,21 @@ export const updateOnlineStatus = async (req, res) => {
   try {
     const { userId, isOnline } = req.body;
     
+    console.log('[Backend] Update online status request:', req.body);
+    
     if (!userId) {
+      console.log('[Backend] Missing userId in request body');
       return res.status(400).json({ message: 'User ID is required' });
     }
     
     if (typeof isOnline !== 'boolean') {
+      console.log('[Backend] Invalid isOnline value:', isOnline);
       return res.status(400).json({ message: 'isOnline must be a boolean value' });
     }
     
     const user = await User.findById(userId);
     if (!user) {
+      console.log('[Backend] User not found with ID:', userId);
       return res.status(404).json({ message: 'User not found' });
     }
     
@@ -513,7 +502,7 @@ export const updateOnlineStatus = async (req, res) => {
     user.lastActive = new Date(); // Update last active timestamp
     await user.save();
     
-    console.log(`User ${userId} online status updated to ${isOnline}`);
+    console.log(`[Backend] User ${userId} online status updated to ${isOnline}`);
     
     res.status(200).json({ 
       message: `Online status updated to ${isOnline ? 'online' : 'offline'}`,
@@ -521,7 +510,7 @@ export const updateOnlineStatus = async (req, res) => {
       lastActive: user.lastActive
     });
   } catch (error) {
-    console.error('Error updating online status:', error);
+    console.error('[Backend] Error updating online status:', error);
     res.status(500).json({ message: 'Failed to update online status', error: error.message });
   }
 };
@@ -539,8 +528,4 @@ const reverseGeocode = async (lat, lon) => {
   } catch (err) {
     return null;
   }
-};
-
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
 };

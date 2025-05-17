@@ -4,9 +4,9 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import fs from 'fs';
 import { LRUCache } from 'lru-cache';
+import mongoose from 'mongoose'; // Add mongoose for ObjectId validation
 import morgan from 'morgan';
 import multer from 'multer'; // Add multer for file uploads
-import fetch from 'node-fetch'; // Add this at the top
 import path from 'path';
 import { Server } from 'socket.io'; // Add this for WebSocket support
 
@@ -23,6 +23,7 @@ import userRoutes from './routes/userRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
 import feedbackRoutes from './routes/feedbackRoutes.js';
 import routeOptimizationRoutes from './routes/routeOptimizationRoutes.js';
+import healthRoutes from './routes/healthRoutes.js';
 
 dotenv.config();
 
@@ -47,6 +48,22 @@ const upload = multer(); // Initialize multer for parsing multipart/form-data
 // Apply rate limiting to all API routes
 app.use('/api/', apiLimiter);
 
+// Request logging middleware for debugging API calls
+app.use((req, res, next) => {
+  const startTime = Date.now();
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - Query params:`, req.query);
+  
+  // Capture response
+  const originalSend = res.send;
+  res.send = function(body) {
+    const responseTime = Date.now() - startTime;
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - Response ${res.statusCode} (${responseTime}ms)`);
+    return originalSend.call(this, body);
+  };
+  
+  next();
+});
+
 // Ensure uploads directories exist
 const uploadsDir = path.join(process.cwd(), 'uploads');
 const foodsUploadsDir = path.join(uploadsDir, 'foods');
@@ -68,12 +85,94 @@ app.use('/uploads', express.static(uploadsDir));
 // Connect to MongoDB
 connectDB(process.env.MONGO_URI); // Use environment variable instead of hardcoded string
 
+// Health check endpoints - both direct and router-based for maximum compatibility
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ status: 'ok', message: 'Server is running', timestamp: new Date().toISOString() });
+});
+app.use('/api/health-check', healthRoutes);
+
 // Routes
+
 app.use('/api/user', userRoutes);
 app.use("/api/cart", cartRoutes);
 app.use('/api/restaurants', restaurantRoutes);
 app.use('/api/foods', foodRoutes);
 app.use('/api/deliveries', deliveryRoutes);
+app.use('/api/delivery', deliveryRoutes); // Add singular route for backward compatibility
+
+// Direct route for delivery stats that doesn't require authentication
+app.get('/api/delivery/stats', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+    
+    const Delivery = (await import('./models/Delivery.js')).default;
+    const User = (await import('./models/User.js')).default;
+    
+    // Validate userId first
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Invalid userId format' });
+    }
+    
+    const user = await User.findById(userId);
+    if (!user || user.role !== 'livreur') {
+      return res.status(404).json({ error: 'Valid livreur not found' });
+    }
+    
+    const completedCount = await Delivery.countDocuments({
+      driver: userId,
+      status: 'delivered'
+    });
+    
+    const pendingCount = await Delivery.countDocuments({
+      driver: userId,
+      status: { $in: ['pending', 'picked_up', 'delivering'] }
+    });
+    
+    // Calculate actual earnings from completed deliveries
+    const completedDeliveries = await Delivery.find({
+      driver: userId,
+      status: 'delivered'
+    });
+    
+    let earnings = 0;
+    let collected = 0;
+    
+    completedDeliveries.forEach(delivery => {
+      if (delivery.deliveryFee) {
+        const fee = parseFloat(delivery.deliveryFee);
+        if (!isNaN(fee)) {
+          earnings += fee;
+        } else {
+          console.warn(`Invalid deliveryFee for delivery ${delivery._id}: ${delivery.deliveryFee}`);
+        }
+      }
+      
+      if (delivery.paymentCollected && delivery.totalAmount) {
+        const amount = parseFloat(delivery.totalAmount);
+        if (!isNaN(amount)) {
+          collected += amount;
+        } else {
+          console.warn(`Invalid totalAmount for delivery ${delivery._id}: ${delivery.totalAmount}`);
+        }
+      }
+    });
+    
+    res.status(200).json({
+      completed: completedCount,
+      pending: pendingCount,
+      earnings: earnings.toFixed(2),
+      collected: collected.toFixed(2)
+    });
+  } catch (error) {
+    console.error('Error in delivery stats:', error);
+    res.status(500).json({ error: 'Failed to fetch stats', message: error.message });
+  }
+});
+
 app.use('/api/orders', orderRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/notifications', notificationRoutes);
@@ -451,7 +550,28 @@ app.get('/api/geocode/restaurant-locations', async (req, res) => {
   }
 });
 
-// All routes have been moved to their respective route files
+// Mount routes (using optimized order - more specific first)
+app.use('/api/health', healthRoutes);
+app.use('/api/delivery', deliveryRoutes);  // Delivery routes have our new endpoints
+app.use('/api/user', userRoutes);
+app.use('/api/restaurant', restaurantRoutes);
+app.use('/api/food', foodRoutes);
+app.use('/api/order', orderRoutes);
+app.use('/api/cart', cartRoutes);
+app.use('/api/payment', paymentRoutes);
+app.use('/api/notification', notificationRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/analytics', analyticsRoutes);
+app.use('/api/feedback', feedbackRoutes);
+app.use('/api/route-optimization', routeOptimizationRoutes);
+
+// Root endpoint - useful for checking API availability
+app.get('/api', (req, res) => {
+  res.json({ message: "API is running" });
+});
+
+// Serve uploaded files
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // Error handling middleware
 const errorHandler = (err, req, res, next) => {
@@ -463,10 +583,44 @@ const errorHandler = (err, req, res, next) => {
   });
 };
 
+// Global error handling middleware
+app.use((err, req, res, next) => {
+  console.error(`[ERROR] ${err.stack}`);
+  const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
+  res.status(statusCode).json({
+    error: err.message,
+    stack: process.env.NODE_ENV === 'production' ? null : err.stack
+  });
+});
+
+// Catch-all route for undefined endpoints
+app.use((req, res) => {
+  res.status(404).json({ 
+    error: 'Endpoint not found',
+    path: req.originalUrl
+  });
+});
+
 // Start server
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`API available at http://localhost:${PORT}/api`);
+  
+  // Print available routes for development
+  console.log('\nAvailable API Endpoints:');
+  console.log('- /api/health');
+  console.log('- /api/delivery');
+  console.log('  - /api/delivery/by-status');
+  console.log('  - /api/delivery/collected');
+  console.log('  - /api/delivery/earnings');
+  console.log('  - /api/delivery/mock-delivery-orders');
+  console.log('- /api/user');
+  console.log('- /api/restaurant');
+  console.log('- /api/food');
+  console.log('- /api/order');
+  console.log('- /api/payment');
+  // ... more routes ...
 });
 
 // WebSocket setup

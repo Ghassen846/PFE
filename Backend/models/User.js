@@ -5,94 +5,95 @@ const userSchema = new mongoose.Schema({
   username: {
     type: String,
     unique: true,
-    trim: true
+    trim: true,
+    required: [true, 'Username is required'],
   },
   firstName: {
     type: String,
-    trim: true
+    trim: true,
+    required: [true, 'First name is required'],
   },
   name: {
     type: String,
-    trim: true
+    trim: true,
+    required: [true, 'Last name is required'],
   },
   email: {
     type: String,
     unique: true,
     trim: true,
-    lowercase: true
+    lowercase: true,
+    required: [true, 'Email is required'],
   },
   password: {
     type: String,
+    required: [true, 'Password is required'],
   },
   image: {
     type: String,
-    default: ''
+    default: '', // URL of profile image
   },
   verified: {
     type: Boolean,
-    default: false
+    default: false,
   },
   phone: {
-    type: String, // Use String to handle phone numbers with country codes
-    required: [true, 'Phone number is required'], // Ensure phone is required
+    type: String,
+    required: [true, 'Phone number is required'],
     validate: {
       validator: function (v) {
-        // Validate phone number format (e.g., international format with +)
-        return /^(\+?\d{1,3})?[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}$/.test(v);
+        // Align with frontend's Tunisian phone regex: (+216) or starts with 2,4,5,9 followed by 7 digits
+        return /^(\+216)?[2459][0-9]{7}$/.test(v);
       },
-      message: props => `${props.value} is not a valid phone number!`
-    }
+      message: props => `${props.value} is not a valid Tunisian phone number!`,
+    },
   },
   location: {
     latitude: {
       type: Number,
-      required: [false, 'Latitude is required'],
-      default: 0
+      default: 0,
     },
     longitude: {
       type: Number,
-      required: [false, 'Longitude is required'],
-      default: 0
+      default: 0,
     },
   },
   role: {
     type: String,
     enum: ['client', 'livreur', 'admin'],
-    default: 'livreur' // Default role is client
+    default: 'livreur',
   },
   vehiculetype: {
     type: String,
     required: function () {
-      return this.role === 'livreur'; // Required only for livreur
-    }
+      return this.role === 'livreur';
+    },
   },
-  vehiculedocuments: {
-    type: [String], // Array of strings for document URLs or names
-    // required: function () {
-    //   return this.role === 'livreur'; // Commented out to avoid registration errors
-    // }
+  vehicleDocuments: {
+    type: [String], // Array of document URLs
+    default: [],
   },
   status: {
     type: String,
-    enum: ['available', 'unavailable'], // Example statuses
-    default: 'unavailable'
+    enum: ['available', 'unavailable'],
+    default: 'unavailable',
   },
   isOnline: {
     type: Boolean,
-    default: false
+    default: false,
   },
   lastActive: {
     type: Date,
-    default: Date.now
+    default: Date.now,
   },
   ratings: {
     type: [
       {
         clientId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-        rating: { type: Number, min: 1, max: 5 }
-      }
+        rating: { type: Number, min: 1, max: 5 },
+      },
     ],
-    default: []
+    default: [],
   },
   vehicle: {
     make: String,
@@ -104,7 +105,7 @@ const userSchema = new mongoose.Schema({
     lastMaintenance: Date,
     nextMaintenance: Date,
     mileage: String,
-    fuelType: String
+    fuelType: String,
   },
   livreurStats: {
     deliveriesCompleted: { type: Number, default: 0 },
@@ -112,23 +113,27 @@ const userSchema = new mongoose.Schema({
     averageTime: String,
     monthlyEarnings: String,
     successRate: String,
-    rating: { type: Number, default: 0 }
-  }
+    rating: { type: Number, default: 0 },
+  },
 }, {
-  timestamps: true
+  timestamps: true,
 });
 
 // Hash password before saving
-userSchema.pre('save', async function(next) {
+userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
-  this.password = await bcrypt.hash(this.password, 10); // Hash the password
+  this.password = await bcrypt.hash(this.password, 10);
   next();
 });
 
 // Method to compare password
-userSchema.methods.comparePassword = async function(candidatePassword) {
+userSchema.methods.comparePassword = async function (candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
 };
+
+// Indexes for efficient queries
+userSchema.index({ username: 1 });
+userSchema.index({ email: 1 });
 
 const User = mongoose.model('User', userSchema);
 
