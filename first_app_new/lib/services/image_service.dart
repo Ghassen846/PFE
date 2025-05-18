@@ -19,7 +19,7 @@ class ImageService {
 
     // For just filenames, assume they're in the uploads directory
     if (!imageUrl.startsWith('/')) {
-      return ApiConfig.getFullImageUrl('/uploads/' + imageUrl);
+      return ApiConfig.getFullImageUrl('/uploads/$imageUrl');
     }
 
     // Use ApiConfig to get full URL for any other relative paths

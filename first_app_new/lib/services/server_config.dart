@@ -6,7 +6,7 @@ import 'api_config.dart';
 
 class ServerConfig {
   // Primary server URL to use
-  static const String SERVER_IP = '192.168.100.41';
+  static const String SERVER_IP = '192.168.100.208';
   static const String PRIMARY_SERVER_URL = 'http://$SERVER_IP:5000/api';
 
   // Backup URLs for different environments

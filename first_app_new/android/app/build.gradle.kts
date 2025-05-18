@@ -8,11 +8,15 @@ plugins {
 android {
     namespace = "com.example.first_app_new"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion // Set to the specific NDK version required by plugins
-
+    // Using the available NDK from flutter, as recommended version is not installed
+    ndkVersion = "26.3.11579264"
+    
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        
+        // Enable desugaring to support Java 8+ features on older Android devices
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -37,6 +41,11 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+}
+
+dependencies {
+    // Add the desugaring dependency required for flutter_local_notifications
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:1.1.5")
 }
 
 flutter {

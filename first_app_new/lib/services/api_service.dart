@@ -27,12 +27,12 @@ class ApiService {
         !imageUrl.startsWith('http://') &&
         !imageUrl.startsWith('https://') &&
         !imageUrl.startsWith('uploads/')) {
-      return '/uploads/${imageUrl}';
+      return '/uploads/$imageUrl';
     }
 
     // For paths starting with uploads/ without the leading slash
     if (imageUrl.startsWith('uploads/')) {
-      return '/${imageUrl}';
+      return '/$imageUrl';
     }
 
     // If it's a relative path without /uploads, let the ImageService handle it
