@@ -75,7 +75,7 @@ class _OrderScreenState extends State<OrderScreen> {
                               OrderStatusCard(
                                 status: 'Delivered',
                                 time:
-                                    '${_countOrdersByStatus(state.orderList, 'delivered')}',
+                                    '${_countOrdersByStatus(state.orderList, 'completed')}',
                                 color: Colors.green,
                               ),
                             ],

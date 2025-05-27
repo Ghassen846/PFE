@@ -2,7 +2,6 @@ import 'package:first_app_new/screens/History.dart';
 import 'package:first_app_new/screens/HomeScreen.dart';
 import 'package:first_app_new/screens/notification_screen.dart';
 import 'package:first_app_new/screens/debug_screen.dart';
-import 'package:first_app_new/screens/DeliveryDetailsScreen.dart';
 import 'package:first_app_new/screens/testing_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -23,6 +22,7 @@ import 'screens/ProfileEditScreen.dart';
 import 'helpers/responsive/sizer_util.dart';
 import 'helpers/bloc/home_bloc.dart';
 import 'generated/app_localizations.dart';
+import 'helpers/shared.dart';
 import 'services/server_config.dart';
 
 // For storing SharedPreferences instance globally
@@ -73,41 +73,69 @@ Future<void> _clearStorage() async {
   }
 }
 
+Future<void> _initializeApp() async {
+  try {
+    // Initialize SharedPreferences first, before anything else
+    prefs = await SharedPreferences.getInstance();
+    log("SharedPreferences initialized successfully");
+
+    // Also initialize shared preferences in the helper module
+    await initPrefs();
+  } catch (e) {
+    log("Error initializing SharedPreferences: $e");
+    rethrow;
+  }
+}
+
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  // Load .env file (optional)
   try {
-    await dotenv.load(fileName: ".env");
-    log("Loaded .env file successfully");
-  } catch (e) {
-    log("Error loading .env file: $e");
-  }
+    WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize SharedPreferences
-  prefs = await SharedPreferences.getInstance();
+    // Initialize SharedPreferences and other core services first
+    await _initializeApp();
 
-  // Clear stale session data
-  await _clearStorage();
-
-  // Initialize networking
-  await _initializeNetworking();
-  // Check if there's a logged in user
-  try {
-    // Check for token in secure storage
-    final secureStorage = FlutterSecureStorage();
-    final token = await secureStorage.read(key: 'token');
-    if (token != null) {
-      log("Found logged-in user");
-      // We'll handle periodic updates in another way
-    } else {
-      log("No logged-in user found");
+    // Load .env file (optional)
+    try {
+      await dotenv.load(fileName: ".env");
+      log("Loaded .env file successfully");
+    } catch (e) {
+      log("Error loading .env file: $e");
     }
-  } catch (e) {
-    log("Error checking login status: $e");
-  }
 
-  runApp(const MyApp());
+    // Clear stale session data
+    await _clearStorage();
+
+    // Initialize networking
+    await _initializeNetworking();
+
+    // Check if there's a logged in user
+    try {
+      // Check for token in secure storage
+      final secureStorage = FlutterSecureStorage();
+      final token = await secureStorage.read(key: 'token');
+      if (token != null) {
+        log("Found logged-in user");
+      } else {
+        log("No logged-in user found");
+      }
+    } catch (e) {
+      log("Error checking login status: $e");
+    }
+
+    runApp(const MyApp());
+  } catch (e) {
+    log("Fatal error during app initialization: $e");
+    // You may want to show an error screen here instead of crashing
+    runApp(
+      const MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: Text('Failed to initialize app. Please restart.'),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 // Add this class before the MyApp class
@@ -248,25 +276,8 @@ class MyApp extends StatelessWidget {
           '/notification':
               (context) => const MainAppWithFooter(initialIndex: 2),
           '/history': (context) => const MainAppWithFooter(initialIndex: 3),
-          '/delivery-details': (context) {
-            final args =
-                ModalRoute.of(context)?.settings.arguments
-                    as Map<String, dynamic>?;
-            if (args != null &&
-                args.containsKey('category') &&
-                args.containsKey('title')) {
-              return DeliveryDetailsScreen(
-                category: args['category'],
-                title: args['title'],
-              );
-            }
-            // Fallback if arguments are missing
-            return const Scaffold(
-              body: Center(
-                child: Text("Missing arguments for delivery details"),
-              ),
-            );
-          },
+
+          // Fallback if arguments are missing
           '/debug': (context) => const DebugScreen(),
           '/lending': (context) => const LendingScreen(),
           '/editProfile': (context) => const ProfileEditScreen(),

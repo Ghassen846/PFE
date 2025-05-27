@@ -12,20 +12,34 @@ class CustomOrderWidget extends StatelessWidget {
   final Order order;
 
   const CustomOrderWidget({super.key, required this.order});
-
   @override
   Widget build(BuildContext context) {
     return BlocConsumer<HomeBloc, HomeState>(
-      listener: (context, state) {},
+      listener: (context, state) {
+        final orderInState = state.orderList.firstWhere(
+          (o) => o.order == order.order,
+          orElse: () => order,
+        );
+
+        if (orderInState.status != order.status) {
+          debugPrint(
+            'Order status changed: ${order.order} from ${order.status} to ${orderInState.status}',
+          );
+        }
+      },
       builder: (context, state) {
+        final currentOrder = state.orderList.firstWhere(
+          (o) => o.order == order.order,
+          orElse: () => order,
+        );
+
         final blocRef = HomeBloc.get(context);
         final isDark = state.isDark;
+
         return Container(
           margin: EdgeInsets.all(2.h),
           width: 100.w,
-          height: 30.h,
           decoration: BoxDecoration(
-            backgroundBlendMode: BlendMode.srcOver,
             color:
                 isDark
                     ? const Color.fromRGBO(28, 25, 23, 1)
@@ -39,159 +53,154 @@ class CustomOrderWidget extends StatelessWidget {
                       : const Color.fromRGBO(228, 228, 231, 1),
             ),
           ),
-          alignment: Alignment.bottomCenter,
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Status and Map Button Row
                 Row(
                   children: [
-                    CircleAvatar(
-                      radius: 1.h,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color:
-                              order.status == "on-the-way"
-                                  ? Colors.blue
-                                  : Colors.green,
-                        ),
+                    // Status indicator
+                    Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
                       ),
-                    ),
-                    SizedBox(width: 2.w),
-                    Flexible(
-                      child: Text(
-                        order.status,
-                        style: TextStyle(
-                          color:
-                              order.status.contains("on")
-                                  ? Colors.blue
-                                  : Colors.green,
-                          fontSize: 12.sp,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        overflow: TextOverflow.ellipsis,
+                      decoration: BoxDecoration(
+                        color: _getStatusColor(
+                          currentOrder.status,
+                        ).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                    ),
-                    Spacer(),
-                    IconButton(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder:
-                                (context) => OrderMapScreen(
-                                  initialPosition: LatLng(
-                                    shared.getLatFromSharedPrefs(),
-                                    shared.getLngFromSharedPrefs(),
-                                  ),
-                                  orderId: order.id ?? '',
-                                  customerName: order.customerName,
-                                  deliveryMan: state.username,
-                                  onTheWay: order.status == "on-the-way",
-                                  adress:
-                                      order.status.contains("on")
-                                          ? order.deliveryAddress
-                                          : order.pickupLocation,
-                                ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _getStatusIcon(currentOrder.status),
+                            color: _getStatusColor(currentOrder.status),
+                            size: 16,
                           ),
-                        );
-                      },
+                          SizedBox(width: 6),
+                          Text(
+                            _formatStatus(currentOrder.status),
+                            style: TextStyle(
+                              color: _getStatusColor(currentOrder.status),
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Spacer(),
+                    // Map button
+                    IconButton(
+                      onPressed:
+                          () => _openMap(context, currentOrder, state.username),
                       icon: Icon(
-                        Icons.gps_fixed_sharp,
+                        Icons.map,
                         color:
                             isDark
                                 ? ThemeHelper.darkIconColor()
                                 : ThemeHelper.lightIconColor(),
-                        size: 20.sp,
                       ),
                     ),
                   ],
                 ),
-                SizedBox(height: 2.h),
+                const SizedBox(height: 16),
+
+                // Order Info
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'Order #${order.orderRef}',
-                      style: TextStyle(
-                        fontSize: 10.sp,
-                        fontWeight: FontWeight.bold,
-                        color:
-                            isDark
-                                ? ThemeHelper.whiteColor
-                                : ThemeHelper.blackColor,
-                      ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Order #${currentOrder.orderRef}',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? Colors.white : Colors.black,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          currentOrder.deliveryDate,
+                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                      ],
                     ),
-                    SizedBox(width: 10),
-                    Text(
-                      order.deliveryDate,
-                      style: TextStyle(
-                        fontSize: 10.sp,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey,
+                    Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'Ref: ${currentOrder.reference}',
+                        style: TextStyle(color: Colors.blue),
                       ),
                     ),
                   ],
                 ),
-                SizedBox(height: 2.h),
-                _buildInfoRow('Customer', order.customerName, isDark),
-                _buildInfoRow('Phone', order.customerPhone, isDark),
-                _buildInfoRow('Delivery To', order.deliveryAddress, isDark),
-                _buildInfoRow('Pickup From', order.pickupLocation, isDark),
+                const SizedBox(height: 16),
 
-                Spacer(),
+                // Location & Customer Info
+                _buildInfoRow(
+                  icon: Icons.store,
+                  label: 'Restaurant',
+                  value: currentOrder.pickupLocation,
+                  isDark: isDark,
+                ),
+                _buildInfoRow(
+                  icon: Icons.person,
+                  label: 'Customer',
+                  value: currentOrder.customerName,
+                  isDark: isDark,
+                ),
+                _buildInfoRow(
+                  icon: Icons.phone,
+                  label: 'Phone',
+                  value: currentOrder.customerPhone,
+                  isDark: isDark,
+                ),
+                _buildInfoRow(
+                  icon: Icons.location_on,
+                  label: 'Delivery To',
+                  value: currentOrder.deliveryAddress,
+                  isDark: isDark,
+                ),
 
+                const SizedBox(height: 16),
+
+                // Action Buttons
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    ElevatedButton(
-                      onPressed: () {
-                        if (order.status == "pending") {
-                          blocRef.add(
-                            HomeChangeOrderStatusEvent(
-                              order: order,
-                              status: "up-coming",
+                    Expanded(
+                      child: _buildActionButton(
+                        onPressed:
+                            () => _handlePrimaryAction(
+                              context,
+                              blocRef,
+                              currentOrder,
                             ),
-                          );
-                        } else if (order.status == "up-coming") {
-                          blocRef.add(
-                            HomeChangeOrderStatusEvent(
-                              order: order,
-                              status: "on-the-way",
-                            ),
-                          );
-                        } else {
-                          _showValidationCodeDialog(context, blocRef, order);
-                        }
-                      },
-                      style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.green,
-                      ),
-                      child: Text(
-                        order.status.contains('on')
-                            ? 'Confirm'
-                            : order.status == "pending"
-                            ? "Accept"
-                            : 'Deliver',
-                        style: const TextStyle(color: Colors.white),
+                        text: _getPrimaryActionText(currentOrder.status),
                       ),
                     ),
-                    ElevatedButton(
-                      onPressed: () {
-                        blocRef.add(
-                          HomeChangeOrderStatusEvent(
-                            order: order,
-                            status: "pending",
-                          ),
-                        );
-                      },
-                      style: ElevatedButton.styleFrom(
+                    SizedBox(width: 16),
+                    Expanded(
+                      child: _buildActionButton(
+                        onPressed:
+                            () => _handleCancelAction(blocRef, currentOrder),
                         backgroundColor: Colors.red,
-                      ),
-                      child: const Text(
-                        'Cancel',
-                        style: TextStyle(color: Colors.white),
+                        text: 'Cancel',
                       ),
                     ),
                   ],
@@ -204,25 +213,76 @@ class CustomOrderWidget extends StatelessWidget {
     );
   }
 
-  Widget _buildInfoRow(String label, String value, bool isDark) {
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'delivered':
+      case 'completed':
+        return Colors.green;
+      case 'livring':
+      case 'delivering':
+        return Colors.orange;
+      case 'cancelled':
+        return Colors.red;
+      case 'pending':
+        return Colors.blue;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _getStatusIcon(String status) {
+    switch (status.toLowerCase()) {
+      case 'delivered':
+      case 'completed':
+        return Icons.check_circle;
+      case 'livring':
+      case 'delivering':
+        return Icons.directions_bike;
+      case 'cancelled':
+        return Icons.cancel;
+      case 'pending':
+        return Icons.schedule;
+      default:
+        return Icons.help_outline;
+    }
+  }
+
+  String _formatStatus(String status) {
+    switch (status.toLowerCase()) {
+      case 'livring':
+        return 'Delivering';
+      default:
+        return status.substring(0, 1).toUpperCase() +
+            status.substring(1).toLowerCase();
+    }
+  }
+
+  Widget _buildInfoRow({
+    required IconData icon,
+    required String label,
+    required String value,
+    required bool isDark,
+  }) {
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: 0.8.h),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
+          Icon(icon, size: 16, color: isDark ? Colors.grey : Colors.grey[700]),
+          const SizedBox(width: 8),
           Text(
             '$label: ',
             style: TextStyle(
-              fontWeight: FontWeight.w500,
-              fontSize: 12.sp,
-              color: isDark ? Colors.white70 : Colors.black87,
+              color: isDark ? Colors.grey : Colors.grey[700],
+              fontSize: 14,
             ),
           ),
           Expanded(
             child: Text(
               value,
               style: TextStyle(
-                fontSize: 12.sp,
                 color: isDark ? Colors.white : Colors.black,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
               ),
               overflow: TextOverflow.ellipsis,
             ),
@@ -232,39 +292,88 @@ class CustomOrderWidget extends StatelessWidget {
     );
   }
 
-  Widget _buildStatusChip(String status) {
-    Color chipColor;
+  Widget _buildActionButton({
+    required VoidCallback onPressed,
+    required Color backgroundColor,
+    required String text,
+  }) {
+    return ElevatedButton(
+      onPressed: onPressed,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: backgroundColor,
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+      ),
+      child: Text(text),
+    );
+  }
+
+  String _getPrimaryActionText(String status) {
     switch (status.toLowerCase()) {
       case 'pending':
-        chipColor = Colors.orange;
-        break;
+        return 'Accept';
+      case 'livring':
+        return 'Confirm Delivery';
+      case 'completed':
       case 'delivered':
-        chipColor = Colors.green;
-        break;
-      case 'on-the-way':
-      case 'up-coming':
-        chipColor = Colors.blue;
-        break;
+        return 'Delivered';
       case 'cancelled':
-        chipColor = Colors.red;
-        break;
+        return 'Cancelled';
       default:
-        chipColor = Colors.grey;
+        return 'Process';
     }
+  }
 
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      decoration: BoxDecoration(
-        color: chipColor.withOpacity(0.2),
-        borderRadius: BorderRadius.circular(15),
-      ),
-      child: Text(
-        status,
-        style: TextStyle(
-          color: chipColor,
-          fontWeight: FontWeight.bold,
-          fontSize: 12,
-        ),
+  void _handlePrimaryAction(
+    BuildContext context,
+    HomeBloc blocRef,
+    Order order,
+  ) {
+    switch (order.status.toLowerCase()) {
+      case 'pending':
+        blocRef.add(
+          HomeChangeOrderStatusEvent(order: order, status: "livring"),
+        );
+        break;
+      case 'livring':
+        _showValidationCodeDialog(context, blocRef, order);
+        break;
+    }
+  }
+
+  void _handleCancelAction(HomeBloc blocRef, Order order) {
+    if (order.status.toLowerCase() != 'completed' &&
+        order.status.toLowerCase() != 'cancelled') {
+      blocRef.add(
+        HomeChangeOrderStatusEvent(order: order, status: "cancelled"),
+      );
+    }
+  }
+
+  Future<void> _openMap(
+    BuildContext context,
+    Order order,
+    String username,
+  ) async {
+    // Fetch stored coordinates before navigation
+    final lat = await shared.getLatFromSharedPrefs();
+    final lng = await shared.getLngFromSharedPrefs();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder:
+            (context) => OrderMapScreen(
+              initialPosition: LatLng(lat, lng),
+              orderId: order.id ?? '',
+              customerName: order.customerName,
+              deliveryMan: username,
+              onTheWay: order.status == 'livring',
+              adress:
+                  order.status == 'livring'
+                      ? order.deliveryAddress
+                      : order.pickupLocation,
+            ),
       ),
     );
   }
@@ -275,30 +384,57 @@ class CustomOrderWidget extends StatelessWidget {
     Order order,
   ) {
     TextEditingController validationController = TextEditingController();
+
+    // Debug output to verify validation code
+    debugPrint('Expected validation code: ${order.validationCode}');
+    debugPrint('Order details: id=${order.order}, ref=${order.orderRef}');
+
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Enter Validation Code'),
-          content: TextField(
-            controller: validationController,
-            decoration: const InputDecoration(hintText: "Validation Code"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: validationController,
+                decoration: const InputDecoration(hintText: "Validation Code"),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Order #${order.orderRef}',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
           ),
           actions: <Widget>[
             TextButton(
               child: const Text('Submit'),
               onPressed: () {
-                if (validationController.text == order.validationCode) {
+                final enteredCode = validationController.text;
+                final expectedCode = order.validationCode;
+
+                debugPrint('Validation code entered: $enteredCode');
+                debugPrint('Expected validation code: $expectedCode');
+
+                if (enteredCode == expectedCode) {
+                  debugPrint('Validation successful, delivering order');
                   blocRef.add(
                     HomeChangeOrderStatusEvent(
                       order: order,
-                      status: "delivered",
-                      validationCode: validationController.text,
+                      status:
+                          "completed", // Using 'completed' to match backend Order model's enum
+                      validationCode: enteredCode,
                     ),
                   );
                   Navigator.of(context).pop();
                   _showSuccessDialog(context);
                 } else {
+                  debugPrint(
+                    'Validation failed: $enteredCode != $expectedCode',
+                  );
                   Navigator.of(context).pop();
                   _showFailureDialog(context);
                 }

@@ -10,7 +10,7 @@ class ConnectivityTest {
 
     final serverUrls = [
       // Primary URL from ApiService
-      'http://192.168.100.41:5000/api', // PC's IP address
+      'http://192.168.100.208:5000/api', // PC's IP address
       'http://10.0.2.2:5000/api', // Android emulator URL
       'http://localhost:5000/api', // Local development
       'http://127.0.0.1:5000/api', // Another localhost option
@@ -64,7 +64,7 @@ class ConnectivityTest {
   // Gets a list of all available server URLs to try
   static List<String> getPossibleServerUrls() {
     return [
-      'http://192.168.100.41:5000/api', // PC's IP address
+      'http://192.168.100.208:5000/api', // PC's IP address
       'http://10.0.2.2:5000/api',
       'http://localhost:5000/api',
       'http://127.0.0.1:5000/api',

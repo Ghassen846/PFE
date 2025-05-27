@@ -2,15 +2,17 @@ import 'dart:convert';
 import 'dart:developer';
 import 'package:flutter/material.dart';
 import 'package:google_nav_bar/google_nav_bar.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../services/server_config.dart';
+import '../helpers/shared.dart';
+
 class LendingScreen extends StatefulWidget {
-  const LendingScreen({super.key});
+  const LendingScreen({Key? key}) : super(key: key);
   static late WebSocketChannel channel;
 
   @override
-  State<LendingScreen> createState() => _LandingPageState();
+  _LandingPageState createState() => _LandingPageState();
 }
 
 class _LandingPageState extends State<LendingScreen> {
@@ -18,8 +20,6 @@ class _LandingPageState extends State<LendingScreen> {
   bool isConnected = false;
   String? userId;
   int navigatorIndex = 0;
-  // Base WebSocket URL - updated with current PC IP address
-  final String baseUrlWS = 'ws://192.168.100.41:5000/ws';
 
   @override
   void initState() {
@@ -38,108 +38,107 @@ class _LandingPageState extends State<LendingScreen> {
   }
 
   Future<void> initializeWebSocketConnection() async {
-    try {
-      String id = await getIdFromSharedPrefs();
-      LendingScreen.channel = WebSocketChannel.connect(
-        Uri.parse('$baseUrlWS?userID=$id'),
-      );
+    if (!mounted) return;
 
+    // Close any existing connection and mark offline
+    try {
+      LendingScreen.channel.sink.close();
+    } catch (_) {}
+    setState(() => isConnected = false);
+
+    try {
+      // Retrieve stored user ID
+      final id = await getIdFromSharedPrefs();
+      if (id.isEmpty) {
+        log(
+          'Invalid or missing user ID, cannot establish WebSocket connection',
+        );
+        return;
+      }
+      // Build WS URL
+      final wsBase = ServerConfig.activeServerUrl
+          .replaceFirst('http', 'ws')
+          .replaceFirst('/api', '');
+      final wsUrl = '$wsBase?userID=$id';
+      log('Connecting to WebSocket: $wsUrl');
+
+      LendingScreen.channel = WebSocketChannel.connect(Uri.parse(wsUrl));
       LendingScreen.channel.stream.listen(
-        (message) {
-          processMessage(message);
+        (msg) {
+          if (!mounted) return;
+          processMessage(msg);
         },
-        onError: (error) {
-          log('WebSocket Error: $error');
-          setState(() {
-            isConnected = false;
-          });
+        onError: (err) {
+          log('WebSocket Error: $err');
+          setState(() => isConnected = false);
+          _scheduleReconnection();
         },
         onDone: () {
-          log('WebSocket connection closed');
-          setState(() {
-            isConnected = false;
-          });
-          // Reconnect after a delay
-          Future.delayed(const Duration(seconds: 5), () {
-            if (mounted) {
-              initializeWebSocketConnection();
-            }
-          });
+          log('WebSocket closed');
+          setState(() => isConnected = false);
+          _scheduleReconnection();
         },
+        cancelOnError: false,
       );
-
       setState(() {
         isConnected = true;
         userId = id;
       });
     } catch (e) {
       log('Error establishing WebSocket connection: $e');
-      setState(() {
-        isConnected = false;
-      });
+      setState(() => isConnected = false);
+      _scheduleReconnection();
     }
   }
 
-  Future<String> getIdFromSharedPrefs() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('userId') ?? 'unknown';
+  void _scheduleReconnection() {
+    Future.delayed(const Duration(seconds: 5), () {
+      if (mounted && !isConnected) {
+        log('Reconnecting WebSocket...');
+        initializeWebSocketConnection();
+      }
+    });
   }
 
   void processMessage(dynamic message) {
     try {
-      log('Received WebSocket message: $message');
-      Map<String, dynamic> jsonResponse = jsonDecode(message);
-
-      if (jsonResponse.containsKey('type')) {
-        switch (jsonResponse['type']) {
-          case 'NEW_ORDER':
-            showCustomBottomSheet(
-              title: 'New Order!',
-              message: 'You have received a new order. Check your orders page.',
-              isSuccess: true,
-            );
-            break;
-          case 'ORDER_CANCELED':
-            showCustomBottomSheet(
-              title: 'Order Canceled',
-              message: 'An order has been canceled by the customer.',
-              isSuccess: false,
-            );
-            break;
-          case 'CONNECTION_SUCCESS':
-            setState(() {
-              isConnected = true;
-            });
-            break;
-          default:
-            log('Unknown message type: ${jsonResponse['type']}');
-        }
+      log('Received WS message: $message');
+      final data = jsonDecode(message) as Map<String, dynamic>;
+      switch (data['type']) {
+        case 'NEW_ORDER':
+          _showCustomBottomSheet(
+            title: 'New Order!',
+            message: 'You have received a new order.',
+            isSuccess: true,
+          );
+          break;
+        case 'ORDER_CANCELED':
+          _showCustomBottomSheet(
+            title: 'Order Canceled',
+            message: 'An order has been canceled.',
+            isSuccess: false,
+          );
+          break;
+        case 'CONNECTION_SUCCESS':
+          setState(() => isConnected = true);
+          break;
       }
     } catch (e) {
-      log('Error processing WebSocket message: $e');
+      log('Error processing message: $e');
     }
   }
 
-  void showCustomBottomSheet({
+  void _showCustomBottomSheet({
     required String title,
     required String message,
     required bool isSuccess,
   }) {
     if (!mounted) return;
-
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.transparent,
       builder:
-          (context) => Container(
+          (_) => Container(
             padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(25),
-                topRight: Radius.circular(25),
-              ),
-            ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -148,44 +147,26 @@ class _LandingPageState extends State<LendingScreen> {
                   height: 5,
                   decoration: BoxDecoration(
                     color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(5),
                   ),
-                ),
-                const SizedBox(height: 20),
-                Icon(
-                  isSuccess ? Icons.check_circle : Icons.error,
-                  color: isSuccess ? Colors.green : Colors.red,
-                  size: 50,
                 ),
                 const SizedBox(height: 20),
                 Text(
                   title,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: isSuccess ? Colors.green : Colors.red,
                   ),
                 ),
                 const SizedBox(height: 10),
                 Text(message, textAlign: TextAlign.center),
                 const SizedBox(height: 20),
                 ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: isSuccess ? Colors.green : Colors.red,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 40,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
                   ),
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text(
-                    'Got it',
-                    style: TextStyle(color: Colors.white),
-                  ),
+                  child: const Text('OK'),
                 ),
-                const SizedBox(height: 20),
               ],
             ),
           ),
@@ -199,32 +180,21 @@ class _LandingPageState extends State<LendingScreen> {
       appBar: AppBar(
         title: const Text('Delivery Status'),
         actions: [
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
-              children: [
-                const Text('Online:'),
-                const SizedBox(width: 10),
-                // Online/Offline toggle switch
-                Switch(
-                  value: isConnected,
-                  onChanged: (value) {
-                    if (value) {
-                      initializeWebSocketConnection();
-                    } else {
-                      LendingScreen.channel.sink.close();
-                      setState(() {
-                        isConnected = false;
-                      });
-                    }
-                  },
-                  activeColor: Colors.green,
-                  activeTrackColor: Colors.green.withOpacity(0.5),
-                  inactiveThumbColor: Colors.red,
-                  inactiveTrackColor: Colors.red.withOpacity(0.5),
-                ),
-              ],
-            ),
+          Row(
+            children: [
+              const Text('Online:'),
+              Switch(
+                value: isConnected,
+                onChanged: (val) {
+                  if (val)
+                    initializeWebSocketConnection();
+                  else
+                    setState(() => isConnected = false);
+                },
+                activeColor: Colors.green,
+                inactiveThumbColor: Colors.red,
+              ),
+            ],
           ),
         ],
       ),
@@ -260,41 +230,28 @@ class _LandingPageState extends State<LendingScreen> {
             ListTile(
               leading: const Icon(Icons.home),
               title: const Text('Home'),
-              onTap: () {
-                Navigator.pop(context);
-                setState(() => navigatorIndex = 0);
-              },
+              onTap: () => setState(() => navigatorIndex = 0),
             ),
             ListTile(
               leading: const Icon(Icons.delivery_dining),
               title: const Text('Orders'),
-              onTap: () {
-                Navigator.pop(context);
-                setState(() => navigatorIndex = 1);
-              },
+              onTap: () => setState(() => navigatorIndex = 1),
             ),
             ListTile(
-              leading: const Icon(Icons.list),
+              leading: const Icon(Icons.history),
               title: const Text('History'),
-              onTap: () {
-                Navigator.pop(context);
-                setState(() => navigatorIndex = 2);
-              },
+              onTap: () => setState(() => navigatorIndex = 2),
             ),
             ListTile(
               leading: const Icon(Icons.settings),
               title: const Text('Settings'),
-              onTap: () {
-                Navigator.pop(context);
-                setState(() => navigatorIndex = 3);
-              },
+              onTap: () => setState(() => navigatorIndex = 3),
             ),
           ],
         ),
       ),
       body: Column(
         children: [
-          // Connection status indicator
           Container(
             color:
                 isConnected
@@ -310,7 +267,7 @@ class _LandingPageState extends State<LendingScreen> {
                 const SizedBox(width: 10),
                 Text(
                   isConnected
-                      ? 'Connected to server - receiving order updates'
+                      ? 'Connected - receiving updates'
                       : 'Disconnected - reconnecting...',
                   style: TextStyle(
                     color: isConnected ? Colors.green : Colors.red,
@@ -323,40 +280,25 @@ class _LandingPageState extends State<LendingScreen> {
           Expanded(child: Center(child: _getBody())),
         ],
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(blurRadius: 20, color: Colors.black.withOpacity(.1)),
+      bottomNavigationBar: SafeArea(
+        child: GNav(
+          rippleColor: Colors.grey[300]!,
+          hoverColor: Colors.grey[100]!,
+          gap: 8,
+          activeColor: Colors.white,
+          iconSize: 24,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          duration: const Duration(milliseconds: 400),
+          tabBackgroundColor: Colors.blue,
+          color: Colors.black,
+          tabs: const [
+            GButton(icon: Icons.home, text: 'Home'),
+            GButton(icon: Icons.delivery_dining, text: 'Orders'),
+            GButton(icon: Icons.history, text: 'History'),
+            GButton(icon: Icons.settings, text: 'Settings'),
           ],
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 15.0, vertical: 8),
-            child: GNav(
-              rippleColor: Colors.grey[300]!,
-              hoverColor: Colors.grey[100]!,
-              gap: 8,
-              activeColor: Colors.white,
-              iconSize: 24,
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              duration: const Duration(milliseconds: 400),
-              tabBackgroundColor: Colors.blue,
-              color: Colors.black,
-              tabs: const [
-                GButton(icon: Icons.home, text: 'Home'),
-                GButton(icon: Icons.delivery_dining, text: 'Orders'),
-                GButton(icon: Icons.history, text: 'History'),
-                GButton(icon: Icons.settings, text: 'Settings'),
-              ],
-              selectedIndex: navigatorIndex,
-              onTabChange: (index) {
-                setState(() {
-                  navigatorIndex = index;
-                });
-              },
-            ),
-          ),
+          selectedIndex: navigatorIndex,
+          onTabChange: (idx) => setState(() => navigatorIndex = idx),
         ),
       ),
     );
@@ -403,9 +345,7 @@ class _LandingPageState extends State<LendingScreen> {
           onPressed: () {
             if (isConnected) {
               LendingScreen.channel.sink.close();
-              setState(() {
-                isConnected = false;
-              });
+              setState(() => isConnected = false);
             } else {
               initializeWebSocketConnection();
             }

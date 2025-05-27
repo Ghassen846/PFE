@@ -337,7 +337,6 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
           createdAt: "createdAt",
           updatedAt: "updatedAt",
           orderRef: "orderRef",
-          address: "defaultAddress",
           id: "defaultId",
         );
     newOrder = newOrder.copyWith(deliveryMan: state.username);
@@ -349,19 +348,62 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     HomeChangeOrderStatusEvent event,
     Emitter<HomeState> emit,
   ) async {
-    int index = state.orderList.indexWhere((element) => element == event.order);
-    if (index != -1) {
-      Order order = state.orderList[index].copyWith(status: event.status);
-      List<Order> newOrderList = List.from(state.orderList);
-      await OrderService().updateOrderStatus(
-        event.order.order,
-        event.status,
-        state.username,
-        event.validationCode,
+    try {
+      // First, emit an immediate UI update to show the status change
+      int index = state.orderList.indexWhere(
+        (element) => element.order == event.order.order,
       );
-      newOrderList[index] = order;
-      List<Order> new1OrderList = await OrderService().getOrders();
-      emit(state.copyWith(orderList: new1OrderList));
+      if (index != -1) {
+        // Create a copy of the order with the new status
+        Order updatedOrder = state.orderList[index].copyWith(
+          status: event.status,
+        );
+
+        // Update the orderList immediately for responsive UI
+        List<Order> newOrderList = List.from(state.orderList);
+        newOrderList[index] = updatedOrder;
+        emit(state.copyWith(orderList: newOrderList));
+
+        // Then update the backend
+        log(
+          'Updating order status in backend: orderId=${event.order.order}, status=${event.status}',
+        );
+        Order? serverUpdatedOrder = await OrderService().updateOrderStatus(
+          event.order.orderId, // Use orderId instead of order reference
+          event.status,
+          state.username,
+          event.validationCode,
+        );
+
+        // If backend update successful, refresh with the server data
+        if (serverUpdatedOrder != null) {
+          log(
+            'Order status updated successfully in backend: ${serverUpdatedOrder.status}',
+          );
+          // Find the order again as the list might have changed
+          int updatedIndex = newOrderList.indexWhere(
+            (element) => element.order == event.order.order,
+          );
+          if (updatedIndex != -1) {
+            newOrderList[updatedIndex] = serverUpdatedOrder;
+            emit(state.copyWith(orderList: newOrderList));
+          }
+        } else {
+          // If backend update failed, fetch all orders to ensure consistency
+          log(
+            'Order status update failed or returned null, refreshing all orders',
+          );
+          List<Order> refreshedOrderList = await OrderService().getOrders();
+          emit(state.copyWith(orderList: refreshedOrderList));
+        }
+      } else {
+        log('Order not found in state.orderList: ${event.order.order}');
+      }
+    } catch (e) {
+      log('Error in changeOrderStatusEvent: $e');
+      // On error, refresh the full order list to ensure consistent state
+      List<Order> refreshedOrderList = await OrderService().getOrders();
+      emit(state.copyWith(orderList: refreshedOrderList));
     }
   }
 
@@ -369,7 +411,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     HomeNewOrderEvent event,
     Emitter<HomeState> emit,
   ) async {
-    int index = state.orderList.indexWhere((element) => element == event.order);
+    int index = state.orderList.indexWhere(
+      (element) => element.order == event.order.order,
+    );
     if (index != -1) {
       Order order = state.orderList[index].copyWith(status: event.order.status);
       List<Order> newOrderList = List.from(state.orderList);

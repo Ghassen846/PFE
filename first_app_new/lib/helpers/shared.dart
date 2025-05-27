@@ -75,15 +75,18 @@ Future<void> initPrefs() async {
   prefs = await SharedPreferences.getInstance();
 }
 
-double getLatFromSharedPrefs() {
+Future<double> getLatFromSharedPrefs() async {
+  await initPrefs(); // Ensure prefs is initialized
   return prefs.getDouble('latitude') ?? 0.0;
 }
 
-double getLngFromSharedPrefs() {
+Future<double> getLngFromSharedPrefs() async {
+  await initPrefs(); // Ensure prefs is initialized
   return prefs.getDouble('longitude') ?? 0.0;
 }
 
-String getIdFromSharedPrefs() {
+Future<String> getIdFromSharedPrefs() async {
+  await initPrefs(); // Ensure prefs is initialized
   return prefs.getString('user_id') ?? '';
 }
 
@@ -313,4 +316,17 @@ void showCustomDialog(
       );
     },
   );
+}
+
+// Get stored coordinates from SharedPreferences
+Future<LatLng> getStoredCoordinates() async {
+  double lat = await getLatFromSharedPrefs();
+  double lng = await getLngFromSharedPrefs();
+
+  // Check if coordinates are valid
+  if (lat == 0.0 && lng == 0.0) {
+    throw Exception('Invalid coordinates. Please check location settings.');
+  }
+
+  return LatLng(lat, lng);
 }

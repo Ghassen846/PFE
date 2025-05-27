@@ -1,6 +1,7 @@
 import 'package:first_app_new/services/api_service.dart';
 import 'package:flutter/material.dart';
 import '../models/order_model/order_model.dart';
+import '../utils/order_debug_helper.dart';
 
 // Import centralized services
 
@@ -90,13 +91,50 @@ class OrderService {
           debugPrint('Error: Unexpected response structure: $response');
         }
       }
-
       return ordersData
-          .map((orderJson) => Order.fromJson(orderJson as Map<String, dynamic>))
+          .map((orderJson) {
+            try {
+              // Debug the data types of problematic fields
+              if (orderJson is Map<String, dynamic>) {
+                _debugOrderDataTypes(orderJson);
+                // Use the dedicated debug helper for more detailed diagnostics
+                OrderDebugHelper.debugPrintOrder(orderJson);
+              }
+
+              return Order.fromJson(orderJson as Map<String, dynamic>);
+            } catch (e) {
+              // Print more detailed error info
+              String errorMsg = 'Error parsing order: $e';
+              if (e.toString().contains(
+                "type 'int' is not a subtype of type 'String'",
+              )) {
+                errorMsg +=
+                    '\nLikely integer to string conversion error with a field.';
+              }
+
+              debugPrint(
+                '$errorMsg for order: ${orderJson is Map ? orderJson['_id'] ?? 'unknown' : 'non-map object'}',
+              );
+              // Return null for orders that failed to parse
+              return null;
+            }
+          })
+          .where((order) => order != null) // Filter out null orders
+          .cast<Order>() // Cast the non-null orders to Order
           .toList();
     } catch (e) {
       debugPrint('Error fetching orders: $e');
       return [];
+    }
+  }
+
+  // Helper method to debug the URL construction
+  void _debugUrl(String endpoint) {
+    try {
+      final fullUrl = ApiService.testBuildUrl(endpoint).toString();
+      debugPrint('Full API URL will be: $fullUrl');
+    } catch (e) {
+      debugPrint('Error debugging URL: $e');
     }
   }
 
@@ -107,6 +145,7 @@ class OrderService {
     String deliveryPerson,
     String validationCode,
   ) async {
+    debugPrint('Updating order status: orderId=$orderId, status=$status');
     try {
       final authToken = await _getToken();
       if (authToken == null) {
@@ -117,29 +156,96 @@ class OrderService {
       final Map<String, dynamic> data = {
         'status': status,
         'deliveryPerson': deliveryPerson,
-        'validationCode': validationCode,
       };
-      final response = await ApiService.put('orders/$orderId/status', data);
+
+      // Only include validation code if it's not empty
+      if (validationCode.isNotEmpty) {
+        data['validationCode'] = validationCode;
+        debugPrint('Including validation code in request: $validationCode');
+      } else {
+        debugPrint('No validation code provided for this status update');
+      }
+
+      debugPrint('Sending API request to update order status: $data');
+
+      // Use orderId from the order object, not the order reference number
+      final endpoint = 'orders/$orderId/status';
+
+      // Debug the full URL that will be used
+      _debugUrl(endpoint);
+
+      debugPrint('Using PATCH request to endpoint: $endpoint');
+      final response = await ApiService.patch(endpoint, data);
+
+      debugPrint('API response for order status update: ${response.keys}');
 
       if (response.containsKey('error')) {
         debugPrint('API Error: ${response['error']}');
         if (response['statusCode'] == 401) {
           debugPrint('Unauthorized: Token may be invalid or expired');
-          // Optionally trigger re-login (handled by UI)
         }
         return null;
       }
 
-      // Return the updated order
+      // Handle different response formats
+      Order? parsedOrder;
+
       if (response.containsKey('order')) {
-        return Order.fromJson(response['order']);
-      } else if (response.containsKey('data')) {
-        return Order.fromJson(response['data']);
+        try {
+          debugPrint('Parsing order from response["order"]');
+          final orderData = response['order'];
+          if (orderData is Map<String, dynamic>) {
+            _debugOrderDataTypes(orderData);
+            parsedOrder = Order.fromJson(orderData);
+          } else {
+            debugPrint(
+              'Error: response["order"] is not a Map: ${orderData.runtimeType}',
+            );
+          }
+        } catch (e) {
+          debugPrint('Error parsing updated order: $e');
+        }
       }
 
-      return Order.fromJson(response);
+      if (parsedOrder == null && response.containsKey('data')) {
+        try {
+          debugPrint('Parsing order from response["data"]');
+          final dataObj = response['data'];
+          if (dataObj is Map<String, dynamic>) {
+            _debugOrderDataTypes(dataObj);
+            parsedOrder = Order.fromJson(dataObj);
+          } else {
+            debugPrint(
+              'Error: response["data"] is not a Map: ${dataObj.runtimeType}',
+            );
+          }
+        } catch (e) {
+          debugPrint('Error parsing order from data: $e');
+        }
+      }
+
+      // Try parsing the direct response as a last resort
+      if (parsedOrder == null) {
+        try {
+          debugPrint('Attempting to parse direct response');
+          _debugOrderDataTypes(response);
+          parsedOrder = Order.fromJson(response);
+        } catch (e) {
+          debugPrint('Error parsing direct response: $e');
+        }
+      }
+
+      if (parsedOrder != null) {
+        debugPrint(
+          'Successfully parsed updated order with status: ${parsedOrder.status}',
+        );
+        return parsedOrder;
+      } else {
+        debugPrint('Failed to parse order from any response format');
+        return null;
+      }
     } catch (e) {
-      debugPrint('Error updating order status: $e');
+      debugPrint('Exception while updating order status: $e');
       return null;
     }
   }
@@ -186,13 +292,149 @@ class OrderService {
       } else {
         debugPrint('Error: Unexpected response structure: $response');
       }
-
       return ordersData
-          .map((orderJson) => Order.fromJson(orderJson as Map<String, dynamic>))
+          .map((orderJson) {
+            try {
+              // Debug the data types of problematic fields
+              if (orderJson is Map<String, dynamic>) {
+                _debugOrderDataTypes(orderJson);
+                // Use the dedicated debug helper for more detailed diagnostics
+                OrderDebugHelper.debugPrintOrder(orderJson);
+              }
+
+              return Order.fromJson(orderJson as Map<String, dynamic>);
+            } catch (e) {
+              debugPrint(
+                'Error parsing order history: $e for order: ${orderJson is Map ? orderJson['_id'] ?? 'unknown' : 'non-map object'}',
+              );
+              // Return null for orders that failed to parse
+              return null;
+            }
+          })
+          .where((order) => order != null) // Filter out null orders
+          .cast<Order>() // Cast the non-null orders to Order
           .toList();
     } catch (e) {
       debugPrint('Error fetching order history: $e');
       return [];
+    }
+  }
+
+  // Helper method to debug why some orders might be missing
+  Future<void> debugMissingOrders(String userId) async {
+    try {
+      final authToken = await _getToken();
+      if (authToken == null) {
+        debugPrint('Error: Cannot fetch orders without a valid token');
+        return;
+      }
+
+      // Directly query the backend to see ALL orders assigned to this livreur
+      final response = await ApiService.get('orders/livreur?userId=$userId');
+
+      debugPrint('==== DEBUG MISSING ORDERS ====');
+      debugPrint('User ID: $userId');
+      debugPrint(
+        'Response status: ${response.containsKey('error') ? 'Error' : 'Success'}',
+      );
+
+      if (response.containsKey('error')) {
+        debugPrint('API Error: ${response['error']}');
+        return;
+      }
+
+      // Prepare a list to store the orders
+      List<dynamic> ordersData = [];
+
+      // Handle different response formats
+      if (response.containsKey('orders')) {
+        final orders = response['orders'];
+        if (orders is List) {
+          ordersData = orders;
+        } else {
+          debugPrint(
+            'Error: response["orders"] is not a List: ${orders.runtimeType}',
+          );
+        }
+      } else if (response.containsKey('data')) {
+        final data = response['data'];
+        if (data is List) {
+          ordersData = data;
+        } else {
+          debugPrint(
+            'Error: response["data"] is not a List: ${data.runtimeType}',
+          );
+        }
+      } else {
+        // If the response doesn't contain orders or data, but isn't an error,
+        // it might be a single order or another structure
+        debugPrint('Response doesn\'t contain orders or data arrays');
+        debugPrint('Response keys: ${response.keys.join(", ")}');
+
+        // Single order case
+        if (response.containsKey('_id')) {
+          ordersData = [response];
+        }
+      }
+
+      debugPrint('Total orders in raw response: ${ordersData.length}');
+
+      // Use our OrderDebugHelper to print details about each order
+      if (ordersData.isNotEmpty) {
+        OrderDebugHelper.debugPrintOrders(ordersData);
+      }
+
+      // Log basic details of each order
+      for (int i = 0; i < ordersData.length; i++) {
+        final order = ordersData[i];
+        if (order is Map<String, dynamic>) {
+          debugPrint(
+            'Order #$i - ID: ${order['_id']} - Status: ${order['status']} - Reference: ${order['reference'] ?? order['orderRef'] ?? 'N/A'}',
+          );
+        } else {
+          debugPrint('Order #$i - Not a Map: ${order.runtimeType}');
+        }
+      }
+
+      debugPrint('============================');
+    } catch (e) {
+      debugPrint('Error in debugMissingOrders: $e');
+    }
+  }
+
+  // Add this helper method for debugging data types
+  void _debugOrderDataTypes(Map<String, dynamic> orderJson) {
+    try {
+      // Print key data fields and their types
+      debugPrint('==== Order Data Types ====');
+      if (orderJson.containsKey('_id')) {
+        debugPrint(
+          '_id: ${orderJson['_id']} (${orderJson['_id'].runtimeType})',
+        );
+      }
+      if (orderJson.containsKey('order')) {
+        debugPrint(
+          'order: ${orderJson['order']} (${orderJson['order'].runtimeType})',
+        );
+      }
+      if (orderJson.containsKey('reference')) {
+        debugPrint(
+          'reference: ${orderJson['reference']} (${orderJson['reference'].runtimeType})',
+        );
+      }
+      if (orderJson.containsKey('orderRef')) {
+        debugPrint(
+          'orderRef: ${orderJson['orderRef']} (${orderJson['orderRef'].runtimeType})',
+        );
+      }
+      if (orderJson.containsKey('validationCode')) {
+        debugPrint(
+          'validationCode: ${orderJson['validationCode']} (${orderJson['validationCode'].runtimeType})',
+        );
+      }
+      debugPrint('==== End of Order Data Types ====');
+    } catch (e) {
+      debugPrint('Error debugging order data types: $e');
     }
   }
 }
