@@ -52,7 +52,7 @@ class AuthServiceImproved {
     required String password,
   }) async {
     developer.log('Attempting login for email: $email', name: 'AuthService');
-    return await ApiService.post('api/user/login', {
+    return await ApiService.post('api/users/login', {
       'email': email,
       'password': password,
     });

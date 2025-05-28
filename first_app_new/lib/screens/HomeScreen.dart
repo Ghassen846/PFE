@@ -1,4 +1,3 @@
-// Updated HomeScreen.dart with optimized navigation
 import 'dart:async';
 import 'package:first_app_new/services/image_service.dart';
 import 'package:flutter/material.dart';
@@ -25,6 +24,7 @@ class _HomeScreenState extends State<HomeScreen>
   Map<String, dynamic>? _userData;
   bool _isOnline = false;
   Timer? _onlineStatusTimer;
+  int _unreadCount = 0;
 
   int completedDeliveries = 0;
   int pendingDeliveries = 0;
@@ -41,9 +41,11 @@ class _HomeScreenState extends State<HomeScreen>
     _fetchUserData();
     _setUserOnline();
     _fetchDeliveryStats();
+    _fetchUnreadCount();
 
     _onlineStatusTimer = Timer.periodic(const Duration(minutes: 2), (timer) {
       _updateOnlineStatus();
+      _fetchUnreadCount();
     });
   }
 
@@ -248,6 +250,42 @@ class _HomeScreenState extends State<HomeScreen>
     await ApiService.saveUserData(userData);
   }
 
+  Future<void> _fetchUnreadCount() async {
+    try {
+      String? userId = await ApiService.getUserId();
+      if (userId == null || userId.isEmpty) {
+        developer.log(
+          'No user ID for fetching unread count',
+          name: 'HomeScreen',
+        );
+        return;
+      }
+
+      developer.log(
+        'Fetching unread message count for user ID: $userId',
+        name: 'HomeScreen',
+      );
+      final response = await ApiService.get(
+        'chat/unread',
+        queryParams: {'userId': userId},
+      );
+      if (response.containsKey('error')) {
+        developer.log(
+          'Error fetching unread count: ${response['error']}',
+          name: 'HomeScreen',
+        );
+        return;
+      }
+      if (mounted) {
+        setState(() {
+          _unreadCount = response['totalUnread'] ?? 0;
+        });
+      }
+    } catch (e) {
+      developer.log('Exception fetching unread count: $e', name: 'HomeScreen');
+    }
+  }
+
   void _toggleTheme() {
     developer.log(
       'Toggling theme: isDarkMode=$_isDarkMode',
@@ -329,7 +367,6 @@ class _HomeScreenState extends State<HomeScreen>
       'Navigating to DeliveryDetailsScreen using FooterNavigationHelper: category=$category, title=$title',
       name: 'HomeScreen',
     );
-    // Use the FooterNavigationHelper instead of direct navigation
     FooterNavigationHelper.navigateToDeliveryDetails(
       context,
       category: category,
@@ -402,6 +439,44 @@ class _HomeScreenState extends State<HomeScreen>
           IconButton(
             icon: Icon(_isDarkMode ? Icons.wb_sunny : Icons.nightlight_round),
             onPressed: _toggleTheme,
+          ),
+          Stack(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.chat),
+                tooltip: 'Chat with Admin',
+                onPressed: () {
+                  developer.log(
+                    'Navigating to chat screen',
+                    name: 'HomeScreen',
+                  );
+                  Navigator.of(
+                    context,
+                  ).pushNamed('/chat', arguments: _userData);
+                },
+              ),
+              if (_unreadCount > 0)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    constraints: const BoxConstraints(
+                      minWidth: 16,
+                      minHeight: 16,
+                    ),
+                    child: Text(
+                      '$_unreadCount',
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+            ],
           ),
           IconButton(
             icon: const Icon(Icons.logout),
@@ -497,8 +572,36 @@ class _HomeScreenState extends State<HomeScreen>
               title: const Text('Home'),
               onTap: () {
                 Navigator.pop(context);
-                // Use pushReplacementNamed to replace the current route
                 Navigator.of(context).pushReplacementNamed('/home');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.chat),
+              title: const Text('Chat with Admin'),
+              trailing:
+                  _unreadCount > 0
+                      ? Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '$_unreadCount',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                          ),
+                        ),
+                      )
+                      : null,
+              onTap: () {
+                developer.log(
+                  'Navigating to chat screen from drawer',
+                  name: 'HomeScreen',
+                );
+                Navigator.pop(context);
+                Navigator.of(context).pushNamed('/chat', arguments: _userData);
               },
             ),
             ListTile(
@@ -506,7 +609,6 @@ class _HomeScreenState extends State<HomeScreen>
               title: const Text('History'),
               onTap: () {
                 Navigator.pop(context);
-                // Use pushReplacementNamed to replace the current route
                 Navigator.of(context).pushReplacementNamed('/history');
               },
             ),
@@ -523,7 +625,7 @@ class _HomeScreenState extends State<HomeScreen>
       ),
       body: Stack(
         children: [
-          _buildDashboardCards(), // Home dashboard only, no navigation or screens switching
+          _buildDashboardCards(),
           if (_isLoading)
             Container(
               color: Colors.black26,
@@ -531,7 +633,6 @@ class _HomeScreenState extends State<HomeScreen>
             ),
         ],
       ),
-      // No bottom navigation bar needed here as it's handled by MainAppWithFooter
     );
   }
 }

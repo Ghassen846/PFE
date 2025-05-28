@@ -29,7 +29,7 @@ class UserService {
         'Updating user information for userId: $userId with data: $data',
         name: 'UserService',
       );
-      final response = await ApiService.patch('api/user/$userId', data);
+      final response = await ApiService.patch('api/users/$userId', data);
 
       if (response.containsKey("user")) {
         // Update local storage
@@ -87,7 +87,7 @@ class UserService {
         name: 'UserService',
       );
       final response = await ApiService.uploadFile(
-        'api/user/$userId/image',
+        'api/users/$userId/image',
         imageFile,
         'image',
       );
@@ -204,7 +204,7 @@ class UserService {
         'Fetching user profile for userId: $userId',
         name: 'UserService',
       );
-      final response = await ApiService.get('api/user/$userId');
+      final response = await ApiService.get('api/users/$userId');
 
       if (response.containsKey('error')) {
         developer.log(
@@ -226,7 +226,7 @@ class UserService {
   static Future<Map<String, dynamic>> getCurrentUserProfile() async {
     try {
       developer.log('Fetching current user profile', name: 'UserService');
-      final response = await ApiService.get('api/user/me');
+      final response = await ApiService.get('api/users/me');
 
       if (response.containsKey('error')) {
         developer.log(

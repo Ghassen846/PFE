@@ -12,6 +12,7 @@ import { Server } from 'socket.io'; // Add this for WebSocket support
 
 import connectDB from './config/database.js';
 import cartRoutes from "./routes/cartRoutes.js";
+import chatRoutes from "./routes/chatRoutes.js"; // Import chat routes
 import deliveryRoutes from './routes/deliveryRoutes.js';
 import foodRoutes from './routes/foodRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
@@ -93,7 +94,6 @@ app.use('/api/health-check', healthRoutes);
 
 // Routes
 
-app.use('/api/user', userRoutes);
 app.use("/api/cart", cartRoutes);
 app.use('/api/restaurants', restaurantRoutes);
 app.use('/api/foods', foodRoutes);
@@ -180,6 +180,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/route-optimization', routeOptimizationRoutes);
+app.use('/api/chat', chatRoutes); // Add chat routes
 // Removed geocodeRoutes import as the file has been deleted
 
 // Optimized cache with LRU policy
@@ -553,7 +554,8 @@ app.get('/api/geocode/restaurant-locations', async (req, res) => {
 // Mount routes (using optimized order - more specific first)
 app.use('/api/health', healthRoutes);
 app.use('/api/delivery', deliveryRoutes);  // Delivery routes have our new endpoints
-app.use('/api/user', userRoutes);
+// Use users (plural) consistently for user routes
+app.use('/api/users', userRoutes);
 app.use('/api/restaurant', restaurantRoutes);
 app.use('/api/food', foodRoutes);
 app.use('/api/order', orderRoutes);
@@ -564,6 +566,10 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/route-optimization', routeOptimizationRoutes);
+app.use('/api/chat', chatRoutes); // Register chat routes
+
+// Remove redundant registration as we're using consistent plural naming above
+// app.use('/api/users', userRoutes);
 
 // Root endpoint - useful for checking API availability
 app.get('/api', (req, res) => {
@@ -602,7 +608,7 @@ app.use((req, res) => {
 });
 
 // Start server
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`API available at http://localhost:${PORT}/api`);

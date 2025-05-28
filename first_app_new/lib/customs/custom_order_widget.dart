@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../helpers/bloc/home_bloc.dart';
 import '../helpers/responsive/sizer_ext.dart';
 import '../helpers/shared.dart' as shared;
@@ -313,6 +312,8 @@ class CustomOrderWidget extends StatelessWidget {
     switch (status.toLowerCase()) {
       case 'pending':
         return 'Accept';
+      case 'pending_livreur_acceptance':
+        return 'Accept';
       case 'livring':
         return 'Confirm Delivery';
       case 'completed':
@@ -330,14 +331,29 @@ class CustomOrderWidget extends StatelessWidget {
     HomeBloc blocRef,
     Order order,
   ) {
+    debugPrint(
+      'Handling primary action for order: ${order.order} with status: ${order.status}',
+    );
     switch (order.status.toLowerCase()) {
       case 'pending':
+      case 'pending_livreur_acceptance':
+        debugPrint('Changing status from ${order.status} to livring');
         blocRef.add(
           HomeChangeOrderStatusEvent(order: order, status: "livring"),
         );
         break;
       case 'livring':
+        debugPrint('Opening validation dialog for delivery confirmation');
         _showValidationCodeDialog(context, blocRef, order);
+        break;
+      default:
+        debugPrint('Status ${order.status} not handled in primary action');
+        // Show a message for unhandled status
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Cannot process order with status: ${order.status}'),
+          ),
+        );
         break;
     }
   }
@@ -364,7 +380,7 @@ class CustomOrderWidget extends StatelessWidget {
       MaterialPageRoute(
         builder:
             (context) => OrderMapScreen(
-              initialPosition: LatLng(lat, lng),
+              initialPosition: shared.LatLng(lat, lng),
               orderId: order.id ?? '',
               customerName: order.customerName,
               deliveryMan: username,
@@ -399,8 +415,12 @@ class CustomOrderWidget extends StatelessWidget {
             children: [
               TextField(
                 controller: validationController,
-                decoration: const InputDecoration(hintText: "Validation Code"),
+                decoration: const InputDecoration(
+                  hintText: "Validation Code",
+                  border: OutlineInputBorder(),
+                ),
                 keyboardType: TextInputType.number,
+                autofocus: true,
               ),
               const SizedBox(height: 8),
               Text(
@@ -411,13 +431,28 @@ class CustomOrderWidget extends StatelessWidget {
           ),
           actions: <Widget>[
             TextButton(
+              child: const Text('Cancel'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            TextButton(
               child: const Text('Submit'),
               onPressed: () {
-                final enteredCode = validationController.text;
+                final enteredCode = validationController.text.trim();
                 final expectedCode = order.validationCode;
 
                 debugPrint('Validation code entered: $enteredCode');
                 debugPrint('Expected validation code: $expectedCode');
+
+                if (enteredCode.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Please enter a validation code'),
+                    ),
+                  );
+                  return;
+                }
 
                 if (enteredCode == expectedCode) {
                   debugPrint('Validation successful, delivering order');

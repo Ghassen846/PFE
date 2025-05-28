@@ -1,4 +1,7 @@
-// This file contains utilities for testing backend connectivity
+// This fi      'http://192.168.100.208:3000/api', // PC's IP address
+      'http://10.0.2.2:3000/api', // Android emulator URL
+      'http://localhost:3000/api', // Local development
+      'http://127.0.0.1:3000/api', // Another localhost optionontains utilities for testing backend connectivity
 import 'dart:async';
 import 'dart:developer';
 import 'package:http/http.dart' as http;
@@ -6,14 +9,12 @@ import 'package:http/http.dart' as http;
 class ConnectivityTest {
   // Tests all possible server URLs and returns the first working one
   static Future<String?> findWorkingServer() async {
-    log('Testing all possible server URLs');
-
-    final serverUrls = [
+    log('Testing all possible server URLs');    final serverUrls = [
       // Primary URL from ApiService
-      'http://192.168.100.208:5000/api', // PC's IP address
-      'http://10.0.2.2:5000/api', // Android emulator URL
-      'http://localhost:5000/api', // Local development
-      'http://127.0.0.1:5000/api', // Another localhost option
+      'http://192.168.100.208:3000/api', // PC's IP address
+      'http://10.0.2.2:3000/api', // Android emulator URL
+      'http://localhost:3000/api', // Local development
+      'http://127.0.0.1:3000/api', // Another localhost option
     ];
 
     // Add dynamic IP addresses from ipconfig if possible
@@ -61,13 +62,12 @@ class ConnectivityTest {
     }
   }
 
-  // Gets a list of all available server URLs to try
-  static List<String> getPossibleServerUrls() {
+  // Gets a list of all available server URLs to try  static List<String> getPossibleServerUrls() {
     return [
-      'http://192.168.100.208:5000/api', // PC's IP address
-      'http://10.0.2.2:5000/api',
-      'http://localhost:5000/api',
-      'http://127.0.0.1:5000/api',
+      'http://192.168.100.208:3000/api', // PC's IP address
+      'http://10.0.2.2:3000/api',
+      'http://localhost:3000/api',
+      'http://127.0.0.1:3000/api',
     ];
   }
 

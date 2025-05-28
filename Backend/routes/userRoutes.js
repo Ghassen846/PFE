@@ -148,10 +148,85 @@ router.post('/register/documents', upload.single('document'), async (req, res) =
       if (!res.headersSent) {
         return res.status(500).json({ error: updateError.message });
       }
-    }
-  } catch (error) {
+    }  } catch (error) {
     console.error('[Backend] Document upload error:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all users for chat (for admins and livreurs)
+router.get('/chat-users', protect, async (req, res) => {
+  try {
+    // Get the user's role
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    let query = {};
+    
+    // If the user is a livreur, only show admins
+    if (currentUser.role === 'livreur') {
+      query = { role: 'admin' };
+    } 
+    // If the user is an admin, show all livreurs
+    else if (currentUser.role === 'admin') {
+      query = { role: 'livreur' };
+    }
+    // For other roles, don't show any users
+    else {
+      return res.status(403).json({ error: 'Unauthorized access to chat users' });
+    }
+    
+    const users = await User.find(query).select('_id name role avatar');
+    
+    res.json(users.map(user => ({
+      id: user._id,
+      name: user.name,
+      role: user.role,
+      avatar: user.avatar
+    })));
+  } catch (error) {
+    console.error('Error getting chat users:', error);
+    res.status(500).json({ error: 'Failed to fetch chat users' });
+  }
+});
+
+// This endpoint will be accessible at /api/users
+router.get('/', protect, async (req, res) => {
+  try {
+    // Get the user's role
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    let query = {};
+    
+    // If the user is a livreur, only show admins
+    if (currentUser.role === 'livreur') {
+      query = { role: 'admin' };
+    } 
+    // If the user is an admin, show all livreurs
+    else if (currentUser.role === 'admin') {
+      query = { role: 'livreur' };
+    }
+    // For other roles, don't show any users
+    else {
+      return res.status(403).json({ error: 'Unauthorized access to chat users' });
+    }
+    
+    const users = await User.find(query).select('_id name role avatar');
+    
+    res.json(users.map(user => ({
+      id: user._id,
+      name: user.name,
+      role: user.role,
+      avatar: user.avatar
+    })));
+  } catch (error) {
+    console.error('Error getting chat users:', error);
+    res.status(500).json({ error: 'Failed to fetch chat users' });
   }
 });
 

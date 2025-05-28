@@ -9,10 +9,10 @@ import 'package:http_parser/http_parser.dart';
 
 class ApiService {
   // Base URL - change this to your server address
-  static const String baseUrl = 'http://192.168.100.245:5000/api';
+  static const String baseUrl = 'http://192.168.100.198:3000/api';
   // Alternative URLs for different environments
-  static const String emulatorUrl = 'http://10.0.2.2:5000/api';
-  static const String localUrl = 'http://localhost:5000/api';
+  static const String emulatorUrl = 'http://10.0.2.2:3000/api';
+  static const String localUrl = 'http://localhost:3000/api';
 
   static String getBaseUrl() {
     // You can extend this to use a value from SharedPreferences for dynamic configuration

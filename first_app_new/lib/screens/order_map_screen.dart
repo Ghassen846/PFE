@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import '../helpers/shared.dart' as shared;
 
 class OrderMapScreen extends StatefulWidget {
-  final LatLng initialPosition;
+  final shared.LatLng initialPosition;
   final String orderId;
   final String customerName;
   final String deliveryMan;
@@ -24,33 +26,16 @@ class OrderMapScreen extends StatefulWidget {
 }
 
 class _OrderMapScreenState extends State<OrderMapScreen> {
-  GoogleMapController? _mapController;
-  LatLng? _center;
-  final Set<Marker> _markers = {};
+  late LatLng _center;
+  final MapController _mapController = MapController();
 
   @override
   void initState() {
     super.initState();
-    _center = widget.initialPosition;
-    _setupMarkers();
-  }
-
-  void _setupMarkers() {
-    // Add marker for the delivery location
-    _markers.add(
-      Marker(
-        markerId: MarkerId('delivery_${widget.orderId}'),
-        position: _center!,
-        infoWindow: InfoWindow(
-          title: widget.onTheWay ? 'Delivery Location' : 'Pickup Location',
-          snippet: widget.adress,
-        ),
-      ),
+    _center = LatLng(
+      widget.initialPosition.latitude,
+      widget.initialPosition.longitude,
     );
-  }
-
-  void _onMapCreated(GoogleMapController controller) {
-    _mapController = controller;
   }
 
   @override
@@ -62,13 +47,43 @@ class _OrderMapScreenState extends State<OrderMapScreen> {
       body: Column(
         children: [
           Expanded(
-            child: GoogleMap(
-              onMapCreated: _onMapCreated,
-              initialCameraPosition: CameraPosition(
-                target: _center!,
-                zoom: 15.0,
-              ),
-              markers: _markers,
+            child: FlutterMap(
+              mapController: _mapController,
+              options: MapOptions(initialCenter: _center, initialZoom: 15.0),
+              children: [
+                TileLayer(
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'com.example.app',
+                ),
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: _center,
+                      width: 80,
+                      height: 80,
+                      child: Column(
+                        children: [
+                          Icon(Icons.location_on, color: Colors.red, size: 40),
+                          Container(
+                            padding: EdgeInsets.all(2),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(4),
+                              boxShadow: [
+                                BoxShadow(color: Colors.black26, blurRadius: 2),
+                              ],
+                            ),
+                            child: Text(
+                              widget.onTheWay ? 'Delivery' : 'Pickup',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
           Container(

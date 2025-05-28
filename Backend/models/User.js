@@ -131,9 +131,9 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
 };
 
-// Indexes for efficient queries
-userSchema.index({ username: 1 });
-userSchema.index({ email: 1 });
+// No need to define indexes again as they are already defined as unique in the schema
+// userSchema.index({ username: 1 }); - removed to avoid duplicate index warning
+// userSchema.index({ email: 1 }); - removed to avoid duplicate index warning
 
 const User = mongoose.model('User', userSchema);
 

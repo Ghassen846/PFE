@@ -8,7 +8,7 @@ import '../services/server_config.dart';
 import '../helpers/shared.dart';
 
 class LendingScreen extends StatefulWidget {
-  const LendingScreen({Key? key}) : super(key: key);
+  const LendingScreen({super.key});
   static late WebSocketChannel channel;
 
   @override
@@ -186,10 +186,11 @@ class _LandingPageState extends State<LendingScreen> {
               Switch(
                 value: isConnected,
                 onChanged: (val) {
-                  if (val)
+                  if (val) {
                     initializeWebSocketConnection();
-                  else
+                  } else {
                     setState(() => isConnected = false);
+                  }
                 },
                 activeColor: Colors.green,
                 inactiveThumbColor: Colors.red,

@@ -4,6 +4,9 @@ class ApiConfig {
   // Base URL for API - uses the ServerConfig class
   static String get baseUrl => ServerConfig.IMAGE_SERVER_BASE;
 
+  // Chat API endpoint
+  static String get chatApi => '${ServerConfig.activeServerUrl}/chat';
+
   // Helper method to get the uploads directory
   static String uploadsUrl() {
     return '$baseUrl/uploads';

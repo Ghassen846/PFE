@@ -5,8 +5,7 @@ import 'package:http/http.dart' as http;
 import 'dart:ui' as ui;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart'
-    as google_maps_flutter;
+import 'package:latlong2/latlong.dart' as latlong2;
 import 'responsive/sizer_ext.dart';
 
 // User account model (simplified)
@@ -30,9 +29,9 @@ class LatLng {
   @override
   String toString() => 'LatLng($latitude, $longitude)';
 
-  // Convert to Google Maps LatLng
-  google_maps_flutter.LatLng toGoogleMaps() {
-    return google_maps_flutter.LatLng(latitude, longitude);
+  // Convert to Leaflet LatLng
+  latlong2.LatLng toLeaflet() {
+    return latlong2.LatLng(latitude, longitude);
   }
 
   @override
@@ -88,6 +87,11 @@ Future<double> getLngFromSharedPrefs() async {
 Future<String> getIdFromSharedPrefs() async {
   await initPrefs(); // Ensure prefs is initialized
   return prefs.getString('user_id') ?? '';
+}
+
+Future<String> getTokenFromSharedPrefs() async {
+  await initPrefs(); // Ensure prefs is initialized
+  return prefs.getString('token') ?? '';
 }
 
 /*Map getDecodedResponseFromSharedPrefs(int index) {

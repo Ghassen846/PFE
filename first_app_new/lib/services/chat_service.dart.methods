@@ -1,0 +1,59 @@
+// Fetch unread messages count
+  Future<Map<String, dynamic>> fetchUnreadMessages() async {
+    if (_userId == null || _userId!.isEmpty) {
+      return {'totalUnread': 0, 'unreadBySender': []};
+    }
+
+    try {
+      final response = await httpGet(
+        '${ApiConfig.chatApi}/unread?userId=$_userId',
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        log(
+          'Chat Service: Error fetching unread messages: ${response.statusCode}',
+        );
+        return {'totalUnread': 0, 'unreadBySender': []};
+      }
+    } catch (e) {
+      log('Chat Service: Error fetching unread messages: $e');
+      return {'totalUnread': 0, 'unreadBySender': []};
+    }
+  }
+
+  // Fetch admin chat history
+  Future<Map<String, dynamic>> fetchAdminChatHistory({
+    int limit = 50,
+    int offset = 0,
+    String? userId,
+  }) async {
+    try {
+      String url =
+          '${ApiConfig.chatApi}/history/admin?limit=$limit&offset=$offset';
+      if (userId != null && userId.isNotEmpty) {
+        url += '&userId=$userId';
+      }
+
+      final response = await httpGet(url);
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        log(
+          'Chat Service: Error fetching admin chat history: ${response.statusCode}',
+        );
+        return {
+          'messages': [],
+          'pagination': {'total': 0, 'offset': 0, 'limit': 0},
+        };
+      }
+    } catch (e) {
+      log('Chat Service: Error fetching admin chat history: $e');
+      return {
+        'messages': [],
+        'pagination': {'total': 0, 'offset': 0, 'limit': 0},
+      };
+    }
+  }

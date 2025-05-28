@@ -1,0 +1,357 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:developer';
+import 'package:http/http.dart' as http;
+import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../models/chat_model/chat_message.dart';
+import '../models/chat_model/chat_conversation.dart';
+import '../services/server_config.dart';
+import '../services/api_config.dart';
+import '../services/api_config.dart';
+import '../helpers/shared.dart';
+
+class ChatService {
+  static final ChatService _instance = ChatService._internal();
+  factory ChatService() => _instance;
+  ChatService._internal();
+
+  // WebSocket connection
+  WebSocketChannel? _channel;
+  bool _isConnected = false;
+  String? _userId;
+
+  // Stream controllers
+  final _messageController = StreamController<ChatMessage>.broadcast();
+  final _onlineUsersController = StreamController<List<String>>.broadcast();
+  final _userStatusController = StreamController<Map<String, bool>>.broadcast();
+  final _conversationsController =
+      StreamController<List<ChatConversation>>.broadcast();
+  final _connectionStatusController = StreamController<bool>.broadcast();
+
+  // Public streams
+  Stream<ChatMessage> get onMessageReceived => _messageController.stream;
+  Stream<List<String>> get onlineUsers => _onlineUsersController.stream;
+  Stream<Map<String, bool>> get userStatusChanges =>
+      _userStatusController.stream;
+  Stream<List<ChatConversation>> get conversations =>
+      _conversationsController.stream;
+  Stream<bool> get connectionStatus => _connectionStatusController.stream;
+
+  // Connection status
+  bool get isConnected => _isConnected;
+  String? get userId => _userId;
+
+  // Initialize the chat service with WebSocket connection
+  Future<void> initialize() async {
+    await _connect();
+  }
+
+  // Connect to WebSocket server
+  Future<void> _connect() async {
+    if (_channel != null) {
+      await _disconnect();
+    }
+
+    try {
+      // Get user ID from shared preferences
+      final id = await getIdFromSharedPrefs();
+      if (id.isEmpty) {
+        log(
+          'Chat Service: Invalid or missing user ID, cannot establish WebSocket connection',
+        );
+        return;
+      }
+
+      // Build WebSocket URL
+      final wsBase = ServerConfig.activeServerUrl
+          .replaceFirst('http', 'ws')
+          .replaceFirst('/api', '');
+      final wsUrl = '$wsBase?userID=$id';
+      log('Chat Service: Connecting to WebSocket: $wsUrl');
+
+      _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+      _userId = id;
+
+      // Listen for incoming messages
+      _channel!.stream.listen(
+        (message) {
+          _processMessage(message);
+        },
+        onError: (error) {
+          log('Chat Service: WebSocket error: $error');
+          _isConnected = false;
+          _connectionStatusController.add(false);
+          _scheduleReconnection();
+        },
+        onDone: () {
+          log('Chat Service: WebSocket connection closed');
+          _isConnected = false;
+          _connectionStatusController.add(false);
+          _scheduleReconnection();
+        },
+        cancelOnError: false,
+      );
+
+      // Send user_connected event
+      sendEvent('user_connected', id);
+
+      _isConnected = true;
+      _connectionStatusController.add(true);
+    } catch (e) {
+      log('Chat Service: Error establishing WebSocket connection: $e');
+      _isConnected = false;
+      _connectionStatusController.add(false);
+      _scheduleReconnection();
+    }
+  }
+
+  // Disconnect from WebSocket server
+  Future<void> _disconnect() async {
+    try {
+      if (_channel != null) {
+        if (_userId != null && _userId!.isNotEmpty) {
+          // Send user_disconnected event before closing
+          sendEvent('user_disconnected', _userId!);
+        }
+        await _channel!.sink.close();
+        _channel = null;
+      }
+      _isConnected = false;
+      _connectionStatusController.add(false);
+    } catch (e) {
+      log('Chat Service: Error disconnecting WebSocket: $e');
+    }
+  }
+
+  // Schedule reconnection
+  void _scheduleReconnection() {
+    Future.delayed(const Duration(seconds: 5), () {
+      if (!_isConnected) {
+        log('Chat Service: Reconnecting WebSocket...');
+        _connect();
+      }
+    });
+  }
+
+  // Process incoming WebSocket messages
+  void _processMessage(dynamic message) {
+    try {
+      log('Chat Service: Received message: $message');
+      final data = jsonDecode(message) as Map<String, dynamic>;
+
+      switch (data['type']) {
+        case 'NEW_MESSAGE':
+          if (data['message'] != null) {
+            final chatMessage = ChatMessage.fromJson(data['message']);
+            _messageController.add(chatMessage);
+          }
+          break;
+
+        case 'ONLINE_USERS':
+          if (data['users'] != null) {
+            final users = List<String>.from(data['users']);
+            _onlineUsersController.add(users);
+          }
+          break;
+
+        case 'USER_STATUS_CHANGE':
+          if (data['userId'] != null && data['status'] != null) {
+            final userId = data['userId'] as String;
+            final isOnline = data['status'] == 'online';
+            _userStatusController.add({userId: isOnline});
+          }
+          break;
+
+        case 'CONVERSATIONS_UPDATE':
+          if (data['conversations'] != null) {
+            final conversationsList =
+                (data['conversations'] as List<dynamic>)
+                    .map((conv) => ChatConversation.fromJson(conv))
+                    .toList();
+            _conversationsController.add(conversationsList);
+          }
+          break;
+
+        case 'CONNECTION_SUCCESS':
+          _isConnected = true;
+          _connectionStatusController.add(true);
+          break;
+      }
+    } catch (e) {
+      log('Chat Service: Error processing message: $e');
+    }
+  }
+
+  // Send a chat message
+  Future<bool> sendMessage({
+    required String receiverId,
+    required String content,
+    String? imageUrl,
+    MessageType type = MessageType.text,
+  }) async {
+    if (!_isConnected || _userId == null || _userId!.isEmpty) {
+      log(
+        'Chat Service: Cannot send message, not connected or missing user ID',
+      );
+      return false;
+    }
+
+    try {
+      final message = {
+        'type': 'SEND_MESSAGE',
+        'message': {
+          'senderId': _userId,
+          'receiverId': receiverId,
+          'content': content,
+          'timestamp': DateTime.now().toIso8601String(),
+          'imageUrl': imageUrl,
+          'messageType': type.toString().split('.').last,
+        },
+      };
+
+      _channel!.sink.add(jsonEncode(message));
+      return true;
+    } catch (e) {
+      log('Chat Service: Error sending message: $e');
+      return false;
+    }
+  }
+
+  // Send a generic event through WebSocket
+  void sendEvent(String eventType, dynamic payload) {
+    if (!_isConnected || _channel == null) {
+      log('Chat Service: Cannot send event, not connected');
+      return;
+    }
+
+    try {
+      final event = {'type': eventType, 'payload': payload};
+
+      _channel!.sink.add(jsonEncode(event));
+    } catch (e) {
+      log('Chat Service: Error sending event: $e');
+    }
+  }
+
+  // Fetch conversation history
+  Future<void> fetchConversations() async {
+    if (_isConnected && _userId != null && _userId!.isNotEmpty) {
+      sendEvent('GET_CONVERSATIONS', _userId);
+    }
+  }
+
+  // Mark message as read
+  Future<void> markMessageAsRead(String messageId) async {
+    if (_isConnected) {
+      sendEvent('MARK_AS_READ', messageId);
+    }
+  }
+
+  // Add methods to fetch online status and unread messages from REST API
+
+  // Fetch online status of users from REST API  Future<Map<String, dynamic>> fetchOnlineStatus(List<String> userIds) async {
+    try {
+      final response = await httpGet(
+        '${ApiConfig.chatApi}/online-status?userIds=${Uri.encodeComponent(jsonEncode(userIds))}',
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        log(
+          'Chat Service: Error fetching online status: ${response.statusCode}',
+        );
+        return {};
+      }
+    } catch (e) {
+      log('Chat Service: Error fetching online status: $e');
+      return {};
+    }
+  }
+
+  // Fetch unread messages count
+  Future<Map<String, dynamic>> fetchUnreadMessages() async {
+    if (_userId == null || _userId!.isEmpty) {
+      return {'totalUnread': 0, 'unreadBySender': []};
+    }
+
+    try {
+      final response = await httpGet(
+        '${ServerConfig.chatApi}/unread?userId=$_userId',
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        log(
+          'Chat Service: Error fetching unread messages: ${response.statusCode}',
+        );
+        return {'totalUnread': 0, 'unreadBySender': []};
+      }
+    } catch (e) {
+      log('Chat Service: Error fetching unread messages: $e');
+      return {'totalUnread': 0, 'unreadBySender': []};
+    }
+  }
+
+  // Fetch admin chat history
+  Future<Map<String, dynamic>> fetchAdminChatHistory({
+    int limit = 50,
+    int offset = 0,
+    String? userId,
+  }) async {
+    try {
+      String url =
+          '${ServerConfig.chatApi}/history/admin?limit=$limit&offset=$offset';
+      if (userId != null && userId.isNotEmpty) {
+        url += '&userId=$userId';
+      }
+
+      final response = await httpGet(url);
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        log(
+          'Chat Service: Error fetching admin chat history: ${response.statusCode}',
+        );
+        return {
+          'messages': [],
+          'pagination': {'total': 0, 'offset': 0, 'limit': 0},
+        };
+      }
+    } catch (e) {
+      log('Chat Service: Error fetching admin chat history: $e');
+      return {
+        'messages': [],
+        'pagination': {'total': 0, 'offset': 0, 'limit': 0},
+      };
+    }
+  }
+
+  // Helper method for HTTP GET requests
+  Future<http.Response> httpGet(String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('authToken') ?? '';
+
+    return await http.get(
+      Uri.parse(url),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
+  }
+
+  // Dispose resources
+  void dispose() async {
+    await _disconnect();
+    await _messageController.close();
+    await _onlineUsersController.close();
+    await _userStatusController.close();
+    await _conversationsController.close();
+    await _connectionStatusController.close();
+  }
+}

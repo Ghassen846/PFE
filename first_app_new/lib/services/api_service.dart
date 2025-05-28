@@ -12,6 +12,7 @@ class ApiService {
   static final FlutterSecureStorage secureStorage = FlutterSecureStorage();
   static Timer? _onlineStatusTimer;
   static bool _isOnline = false;
+
   // Helper method to properly process image URLs
   static String _processImageUrl(String imageUrl) {
     if (imageUrl.isEmpty) return '';
@@ -547,7 +548,10 @@ class ApiService {
     required String password,
   }) async {
     developer.log('Attempting login for email: $email', name: 'ApiService');
-    return await post('user/login', {'email': email, 'password': password});
+    return await post('api/users/login', {
+      'email': email,
+      'password': password,
+    });
   }
 
   // Register user with all required fields
@@ -583,11 +587,13 @@ class ApiService {
         if (longitude != null) 'longitude': longitude,
         if (vehiculetype != null) 'vehiculetype': vehiculetype,
       };
-      developer.log('Registering user with data: $data', name: 'ApiService');
-      // Using the correct endpoint for user registration
+      developer.log(
+        'Registering user with data: $data',
+        name: 'ApiService',
+      ); // Using the correct endpoint for user registration
       // When combined with the baseUrl http://SERVER_IP:5000/api, this creates:
-      // http://SERVER_IP:5000/api/user/register
-      final response = await post('user/register', data);
+      // http://SERVER_IP:5000/api/users/register
+      final response = await post('api/users/register', data);
       if (response.containsKey('error')) {
         developer.log(
           'Registration error: ${response['error']}',
@@ -622,7 +628,7 @@ class ApiService {
         );
         try {
           final imageResponse = await uploadFile(
-            'user/register/image?userId=$userId',
+            'api/users/register/image?userId=$userId',
             profileImage,
             'image',
           );
@@ -673,7 +679,7 @@ class ApiService {
         );
         for (var doc in vehicleDocuments) {
           final docResponse = await uploadFile(
-            'user/register/documents?userId=$userId',
+            'api/users/register/documents?userId=$userId',
             doc,
             'document',
           );
@@ -731,13 +737,15 @@ class ApiService {
       );
       return {'error': 'User not logged in'};
     }
-
     developer.log(
       'Updating online status for user $userId to $isOnline',
       name: 'ApiService',
     );
     // Use correct endpoint format without 'api/' prefix since it's already in baseUrl
-    return await put('user/status', {'userId': userId, 'isOnline': isOnline});
+    return await put('api/users/status', {
+      'userId': userId,
+      'isOnline': isOnline,
+    });
   }
 
   // Start periodic online status updates

@@ -1,5 +1,6 @@
 import 'package:first_app_new/screens/History.dart';
 import 'package:first_app_new/screens/HomeScreen.dart';
+import 'package:first_app_new/screens/chat_screen.dart';
 import 'package:first_app_new/screens/notification_screen.dart';
 import 'package:first_app_new/screens/debug_screen.dart';
 import 'package:first_app_new/screens/testing_screen.dart';
@@ -155,12 +156,12 @@ class MainAppWithFooter extends StatefulWidget {
 
 class _MainAppWithFooterState extends State<MainAppWithFooter> {
   int _currentIndex = 0;
-
   final List<Widget> _screens = [
     const HomeScreen(),
     const OrderScreen(),
     const NotificationScreen(),
     const HistoryScreen(),
+    const ChatScreen(),
   ];
 
   @override
@@ -226,6 +227,11 @@ class _MainAppWithFooterState extends State<MainAppWithFooter> {
               activeIcon: Icon(Icons.history),
               label: 'History',
             ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.chat_bubble_outline),
+              activeIcon: Icon(Icons.chat_bubble),
+              label: 'Chat',
+            ),
           ],
         ),
       ),
@@ -276,8 +282,8 @@ class MyApp extends StatelessWidget {
           '/notification':
               (context) => const MainAppWithFooter(initialIndex: 2),
           '/history': (context) => const MainAppWithFooter(initialIndex: 3),
+          '/chat-home': (context) => const MainAppWithFooter(initialIndex: 4),
 
-          // Fallback if arguments are missing
           '/debug': (context) => const DebugScreen(),
           '/lending': (context) => const LendingScreen(),
           '/editProfile': (context) => const ProfileEditScreen(),
@@ -288,6 +294,9 @@ class MyApp extends StatelessWidget {
             return ProfileEditScreen(initialData: args);
           },
           '/testing': (context) => const TestScreen(),
+          '/chat': (context) => const ChatScreen(),
+
+          // Fallback if no args provided
         },
       ),
     );

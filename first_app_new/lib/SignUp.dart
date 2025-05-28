@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:location/location.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'services/AuthService.dart';
 import 'login.dart';
 
@@ -35,7 +34,7 @@ class _SignUpPageState extends State<SignUpPage> {
   File? _profileImage;
   LocationData? _currentLocation;
   String _selectedVehicleType = 'scooter'; // Default vehicle type
-  List<File> _vehicleDocuments = []; // Store vehicle document files
+  final List<File> _vehicleDocuments = []; // Store vehicle document files
 
   @override
   void initState() {

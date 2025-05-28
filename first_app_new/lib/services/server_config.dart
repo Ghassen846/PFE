@@ -2,23 +2,19 @@
 import 'dart:developer';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
-import 'api_config.dart';
 
 class ServerConfig {
   // Primary server URL to use
   static const String SERVER_IP = '192.168.100.198';
-  static const String PRIMARY_SERVER_URL = 'http://$SERVER_IP:5000/api';
+  static const String PRIMARY_SERVER_URL = 'http://$SERVER_IP:3000/api';
 
   // Backup URLs for different environments
-  static const String EMULATOR_URL = 'http://10.0.2.2:5000/api';
-  static const String LOCALHOST_URL = 'http://localhost:5000/api';
-  static const String LOOPBACK_URL = 'http://127.0.0.1:5000/api';
-  // Image server base URL - note: we use the active server URL base without the /api suffix
-  static String get IMAGE_SERVER_BASE {
-    // Extract the base URL without the /api suffix from the active server URL
-    final String url = activeServerUrl;
-    return url.endsWith('/api') ? url.substring(0, url.length - 4) : url;
-  }
+  static const String EMULATOR_URL = 'http://10.0.2.2:3000/api';
+  static const String LOCALHOST_URL = 'http://localhost:3000/api';
+  static const String LOOPBACK_URL = 'http://127.0.0.1:3000/api';
+
+  // Image server base URL
+  static const String IMAGE_SERVER_BASE = 'http://$SERVER_IP:3000';
 
   // Current active URL
   static String _activeServerUrl = PRIMARY_SERVER_URL;
@@ -73,13 +69,24 @@ class ServerConfig {
   }
 
   // Fix image URLs to use the correct server
-  // This method is now deprecated, use ApiConfig.getFullImageUrl() instead
   static String fixImageUrl(String? imageUrl) {
     if (imageUrl == null || imageUrl.isEmpty) {
       return '';
     }
 
-    // We delegate to the new implementation
-    return ApiConfig.getFullImageUrl(imageUrl);
+    String fixedUrl = imageUrl;
+
+    if (imageUrl.startsWith('undefined/uploads/')) {
+      fixedUrl = imageUrl.replaceFirst('undefined', IMAGE_SERVER_BASE);
+      log('Fixed malformed image URL: $fixedUrl');
+    } else if (imageUrl.contains('localhost')) {
+      fixedUrl = imageUrl.replaceAll('localhost', SERVER_IP);
+      log('Fixed localhost image URL: $fixedUrl');
+    } else if (imageUrl.startsWith('/uploads/')) {
+      fixedUrl = '$IMAGE_SERVER_BASE$imageUrl';
+      log('Added server to image URL: $fixedUrl');
+    }
+
+    return fixedUrl;
   }
 }

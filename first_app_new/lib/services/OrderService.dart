@@ -67,7 +67,7 @@ class OrderService {
       } else if (response.containsKey('orders')) {
         return List<Map<String, dynamic>>.from(response['orders']);
       } else
-        return [response as Map<String, dynamic>];
+        return [response];
     } catch (e) {
       debugPrint('Error fetching delivery orders: $e');
       return [];

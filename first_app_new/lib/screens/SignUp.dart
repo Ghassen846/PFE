@@ -1,8 +1,8 @@
 /*
  * Note: Ensure the backend supports the following endpoints:
- * - POST /api/user/register: For user registration data (JSON)
- * - POST /api/user/register/image: For profile image upload
- * - POST /api/user/register/documents: For vehicle document uploads
+ * - POST /api/users/register: For user registration data (JSON)
+ * - POST /api/users/register/image: For profile image upload
+ * - POST /api/users/register/documents: For vehicle document uploads
  * Update ServerConfig.activeServerUrl in server_config.dart to match your server (e.g., http://192.168.100.41:5000).
  */
 
@@ -282,7 +282,7 @@ class _SignUpPageState extends State<SignUpPage> {
         developer.log('Registration failed: $errorMsg', name: 'SignUpPage');
         if (response['statusCode'] == 404 || errorMsg.contains('404')) {
           _showNetworkErrorDialog(
-            'Server endpoint not found. Please check if the server is running at ${ServerConfig.activeServerUrl}/api/user/register.',
+            'Server endpoint not found. Please check if the server is running at ${ServerConfig.activeServerUrl}/api/users/register.',
           );
         } else {
           Fluttertoast.showToast(msg: errorMsg, backgroundColor: Colors.red);
