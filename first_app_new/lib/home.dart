@@ -1,7 +1,8 @@
 import 'dart:async'; // For Timer
+import 'package:first_app_new/screens/notification_screen.dart';
+
 import 'Help.dart';
 import 'History.dart';
-import 'Notification.dart';
 import 'profile.dart';
 import 'Search.dart';
 import 'Settings.dart';

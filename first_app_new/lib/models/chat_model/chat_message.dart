@@ -1,6 +1,7 @@
 // ignore_for_file: public_member_api_docs, sort_constructors_first
 import 'dart:developer' as developer;
 import 'package:equatable/equatable.dart';
+import 'package:first_app_new/services/server_config.dart'; // Add ServerConfig import
 
 class ChatMessage extends Equatable {
   final String id;
@@ -50,13 +51,11 @@ class ChatMessage extends Equatable {
       } catch (e) {
         developer.log('Error parsing timestamp: $e', name: 'ChatMessage');
         timestamp = DateTime.now();
-      }
-
-      // Create a clean URL for images
+      } // Create a clean URL for images
       String? cleanImageUrl = imageUrl;
       if (imageUrl != null && imageUrl.isNotEmpty) {
         if (!imageUrl.startsWith('http')) {
-          cleanImageUrl = 'http://192.168.100.198:3000/uploads/$imageUrl';
+          cleanImageUrl = '${ServerConfig.IMAGE_SERVER_BASE}/uploads/$imageUrl';
           developer.log('Fixed image URL: $cleanImageUrl', name: 'ChatMessage');
         }
       }

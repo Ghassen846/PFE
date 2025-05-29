@@ -21,15 +21,15 @@ void main() {
     );
 
     expect(chatUser.id, equals('test_recipient_id'));
-    expect(chatUser.isOnline, isTrue);
-
-    // Test creating a chat message
+    expect(chatUser.isOnline, isTrue); // Test creating a chat message
     final chatMessage = ChatMessage(
       id: '1',
       senderId: 'test_user_id',
       receiverId: 'test_recipient_id',
       content: 'Hello, this is a test message',
-      timestamp: DateTime.now().toIso8601String(),
+      timestamp: DateTime.now(),
+      isRead: false,
+      type: 'text',
     );
 
     expect(chatMessage.content, equals('Hello, this is a test message'));

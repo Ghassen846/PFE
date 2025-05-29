@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' as google_maps;
 import '../helpers/bloc/home_bloc.dart';
 import '../helpers/responsive/sizer_ext.dart';
 import '../helpers/shared.dart' as shared;
 import '../helpers/theme/theme.dart';
 import '../models/order_model/order_model.dart';
-import '../screens/order_map_screen.dart';
+import '../utils/map_launcher_utils.dart'; // New import
+import '../utils/order_coordinate_validator.dart';
 
 class CustomOrderWidget extends StatelessWidget {
   final Order order;
 
   const CustomOrderWidget({super.key, required this.order});
+
   @override
   Widget build(BuildContext context) {
     return BlocConsumer<HomeBloc, HomeState>(
@@ -37,7 +40,7 @@ class CustomOrderWidget extends StatelessWidget {
 
         return Container(
           margin: EdgeInsets.all(2.h),
-          width: 100.w,
+          width: double.infinity, // Changed from 100.w to prevent overflow
           decoration: BoxDecoration(
             color:
                 isDark
@@ -62,34 +65,39 @@ class CustomOrderWidget extends StatelessWidget {
                 Row(
                   children: [
                     // Status indicator
-                    Container(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _getStatusColor(
-                          currentOrder.status,
-                        ).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            _getStatusIcon(currentOrder.status),
-                            color: _getStatusColor(currentOrder.status),
-                            size: 16,
-                          ),
-                          SizedBox(width: 6),
-                          Text(
-                            _formatStatus(currentOrder.status),
-                            style: TextStyle(
+                    Flexible(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _getStatusColor(
+                            currentOrder.status,
+                          ).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _getStatusIcon(currentOrder.status),
                               color: _getStatusColor(currentOrder.status),
-                              fontWeight: FontWeight.bold,
+                              size: 16,
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                _formatStatus(currentOrder.status),
+                                style: TextStyle(
+                                  color: _getStatusColor(currentOrder.status),
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                     const Spacer(),
@@ -113,26 +121,34 @@ class CustomOrderWidget extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Order #${currentOrder.orderRef}',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: isDark ? Colors.white : Colors.black,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Order #${currentOrder.orderRef}',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          currentOrder.deliveryDate,
-                          style: TextStyle(fontSize: 12, color: Colors.grey),
-                        ),
-                      ],
+                          const SizedBox(height: 4),
+                          Text(
+                            currentOrder.deliveryDate,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
                     ),
+                    const SizedBox(width: 8),
                     Container(
-                      padding: EdgeInsets.symmetric(
+                      padding: const EdgeInsets.symmetric(
                         horizontal: 10,
                         vertical: 5,
                       ),
@@ -142,7 +158,7 @@ class CustomOrderWidget extends StatelessWidget {
                       ),
                       child: Text(
                         'Ref: ${currentOrder.reference}',
-                        style: TextStyle(color: Colors.blue),
+                        style: const TextStyle(color: Colors.blue),
                       ),
                     ),
                   ],
@@ -372,26 +388,182 @@ class CustomOrderWidget extends StatelessWidget {
     Order order,
     String username,
   ) async {
+    debugPrint('🔍 Validating order coordinates');
+
     // Fetch stored coordinates before navigation
     final lat = await shared.getLatFromSharedPrefs();
     final lng = await shared.getLngFromSharedPrefs();
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder:
-            (context) => OrderMapScreen(
-              initialPosition: shared.LatLng(lat, lng),
-              orderId: order.id ?? '',
-              customerName: order.customerName,
-              deliveryMan: username,
-              onTheWay: order.status == 'livring',
-              adress:
-                  order.status == 'livring'
-                      ? order.deliveryAddress
-                      : order.pickupLocation,
-            ),
-      ),
+
+    // Create order data map for validation
+    final Map<String, dynamic> orderData = {
+      'restaurantName': order.restaurantName ?? order.pickupLocation,
+      'restaurantAddress': order.pickupLocation,
+      'clientLocation': {'latitude': null, 'longitude': null},
+      'deliveryAddress': order.deliveryAddress,
+    };
+
+    // Validate and enhance coordinates
+    final validatedOrder = OrderCoordinateValidator.validateOrderCoordinates(
+      orderData,
     );
+
+    // Get restaurant position
+    late double restaurantLat;
+    late double restaurantLng;
+    try {
+      if (validatedOrder.containsKey('restaurantLatitude') &&
+          validatedOrder.containsKey('restaurantLongitude') &&
+          validatedOrder['restaurantLatitude'] != null &&
+          validatedOrder['restaurantLongitude'] != null) {
+        final double? lat = _parseCoordinate(
+          validatedOrder['restaurantLatitude'],
+        );
+        final double? lng = _parseCoordinate(
+          validatedOrder['restaurantLongitude'],
+        );
+
+        if (lat != null &&
+            lng != null &&
+            lat >= -90 &&
+            lat <= 90 &&
+            lng >= -180 &&
+            lng <= 180 &&
+            !(lat == OrderCoordinateValidator.DEFAULT_LAT &&
+                lng == OrderCoordinateValidator.DEFAULT_LNG)) {
+          restaurantLat = lat;
+          restaurantLng = lng;
+          debugPrint('✅ Using valid restaurant coordinates: ($lat, $lng)');
+        } else {
+          debugPrint('❌ Restaurant coordinates invalid, using default');
+          restaurantLat = 35.5270204;
+          restaurantLng = 11.0332198;
+        }
+      } else {
+        // Try to get coordinates from address
+        final restaurantCoords = await _getAddressCoordinates(
+          order.pickupLocation,
+        );
+        if (restaurantCoords != null) {
+          restaurantLat = restaurantCoords.latitude;
+          restaurantLng = restaurantCoords.longitude;
+        } else {
+          debugPrint('❌ No valid restaurant coordinates found');
+          restaurantLat = 35.5270204;
+          restaurantLng = 11.0332198;
+          debugPrint('! Using Mahdia coordinates for restaurant');
+        }
+      }
+    } catch (e) {
+      debugPrint('Error getting restaurant coordinates: $e');
+      restaurantLat = 35.5270204;
+      restaurantLng = 11.0332198;
+    } // Get customer position
+    late double customerLat;
+    late double customerLng;
+    try {
+      debugPrint(
+        '🔍 Client coordinates invalid, searching alternative sources',
+      );
+      if (validatedOrder['clientLocation'] is Map) {
+        final clientLoc = validatedOrder['clientLocation'] as Map;
+        if (clientLoc.containsKey('latitude') &&
+            clientLoc.containsKey('longitude')) {
+          customerLat = clientLoc['latitude'];
+          customerLng = clientLoc['longitude'];
+        } else {
+          debugPrint(
+            '❌ No valid client coordinates found, searching through order data',
+          );
+          customerLat = 35.5271204;
+          customerLng = 11.0332198; // Slight offset from restaurant
+        }
+      } else {
+        debugPrint('🔍 Checking delivery address: ${order.deliveryAddress}');
+        // Try to get coordinates from address
+        final customerCoords = await _getAddressCoordinates(
+          order.deliveryAddress,
+        );
+        if (customerCoords != null) {
+          customerLat = customerCoords.latitude;
+          customerLng = customerCoords.longitude;
+        } else {
+          debugPrint('! Falling back to restaurant coordinates with offset');
+          customerLat = 35.5271204;
+          customerLng = 11.0332198; // Slight offset from restaurant
+          debugPrint(
+            '! Using restaurant coordinates with small offset: [35.5271204, 11.0332198]',
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error getting customer coordinates: $e');
+      customerLat = 35.5271204;
+      customerLng = 11.0332198;
+    }
+
+    debugPrint(
+      '✅ Final validated coordinates: restaurant: [$restaurantLat, $restaurantLng], client: [$customerLat, $customerLng]',
+    );
+
+    String? restaurantName = validatedOrder['restaurantName'];
+
+    // Launch external Google Maps app with directions
+    MapLauncherUtils.launchGoogleMapsWithDirections(
+      userLat: lat,
+      userLng: lng,
+      destinationLat: restaurantLat,
+      destinationLng: restaurantLng,
+      destinationName: restaurantName ?? 'Restaurant',
+    );
+  }
+
+  // Helper method to get coordinates from address
+  Future<shared.LatLng?> _getAddressCoordinates(String address) async {
+    try {
+      if (address.isEmpty) return null;
+
+      // Check if the address already contains coordinates in parentheses
+      final RegExp coordRegex = RegExp(r'\((-?\d+\.\d+),\s*(-?\d+\.\d+)\)');
+      final match = coordRegex.firstMatch(address);
+
+      if (match != null && match.groupCount >= 2) {
+        final double? extractedLat = double.tryParse(match.group(1)!);
+        final double? extractedLng = double.tryParse(match.group(2)!);
+
+        if (extractedLat != null &&
+            extractedLng != null &&
+            extractedLat >= -90 &&
+            extractedLat <= 90 &&
+            extractedLng >= -180 &&
+            extractedLng <= 180) {
+          debugPrint(
+            '✅ Extracted coordinates from address string: ($extractedLat, $extractedLng)',
+          );
+          return shared.LatLng(extractedLat, extractedLng);
+        }
+      }
+
+      // Special case for Mahdia
+      if (address.toLowerCase().contains('mahdia')) {
+        debugPrint('✅ Using special coordinates for Mahdia address');
+        return shared.LatLng(35.5270204, 11.0332198); // Mahdia coordinates
+      }
+
+      // Try GraphHopper geocoding
+      return await shared.getCoordinatesFromAddressGraphHopper(address);
+    } catch (e) {
+      debugPrint('Error getting coordinates for address: $e');
+      return null;
+    }
+  }
+
+  // Helper method to parse coordinate values
+  double? _parseCoordinate(dynamic value) {
+    if (value == null) return null;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return double.tryParse(value.toString());
   }
 
   void _showValidationCodeDialog(

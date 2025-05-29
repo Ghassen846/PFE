@@ -66,7 +66,7 @@ class _SignUpPageState extends State<SignUpPage> {
   final List<File> _vehicleDocuments = [];
   final Connectivity _connectivity = Connectivity();
   // Initialize with an empty subscription that will be properly set in initState
-  StreamSubscription<ConnectivityResult>? _connectivitySubscription;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   String? _lastErrorServerUrl;
   final Debouncer _debouncer = Debouncer(
     delay: const Duration(milliseconds: 500),
@@ -97,29 +97,28 @@ class _SignUpPageState extends State<SignUpPage> {
   Future<void> _initializeConnectivity() async {
     try {
       var connectivityResult = await _connectivity.checkConnectivity();
-      bool hasInternet = connectivityResult != ConnectivityResult.none;
+      bool hasInternet = !connectivityResult.contains(ConnectivityResult.none);
 
       if (mounted) {
         setState(() {
           _isConnected = hasInternet;
         });
       }
+      _connectivitySubscription = _connectivity.onConnectivityChanged.listen((
+        result,
+      ) {
+        bool hasConnection = !result.contains(ConnectivityResult.none);
 
-      _connectivitySubscription =
-          _connectivity.onConnectivityChanged.listen((result) {
-                bool hasConnection = result != ConnectivityResult.none;
-
-                if (mounted) {
-                  setState(() {
-                    _isConnected = hasConnection;
-                  });
-                  developer.log(
-                    'Connectivity changed: ${_isConnected ? 'Connected' : 'Disconnected'}',
-                    name: 'SignUpPage',
-                  );
-                }
-              })
-              as StreamSubscription<ConnectivityResult>;
+        if (mounted) {
+          setState(() {
+            _isConnected = hasConnection;
+          });
+          developer.log(
+            'Connectivity changed: ${_isConnected ? 'Connected' : 'Disconnected'}',
+            name: 'SignUpPage',
+          );
+        }
+      });
     } catch (e) {
       developer.log(
         'Connectivity initialization error: $e',
@@ -214,10 +213,9 @@ class _SignUpPageState extends State<SignUpPage> {
       );
       return;
     }
-
     try {
       var connectivityResult = await _connectivity.checkConnectivity();
-      if (connectivityResult == ConnectivityResult.none) {
+      if (connectivityResult.contains(ConnectivityResult.none)) {
         _showNetworkErrorDialog("No internet connection detected.");
         return;
       }

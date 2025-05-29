@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../helpers/bloc/home_bloc.dart';
 import '../customs/custom_order_widget.dart';
 import '../customs/order_status_card.dart';
+import '../widgets/network_status_widget.dart';
 
 class OrderScreen extends StatefulWidget {
   const OrderScreen({super.key});
@@ -12,11 +13,29 @@ class OrderScreen extends StatefulWidget {
 }
 
 class _OrderScreenState extends State<OrderScreen> {
+  bool _showCompletedOrders = false;
+
   @override
   void initState() {
     super.initState();
     // Request order list data when screen initializes
     context.read<HomeBloc>().add(HomeInitialEvent());
+  }
+
+  // Filter orders based on their status
+  List<dynamic> _filterOrders(List<dynamic> orders) {
+    if (_showCompletedOrders) {
+      return orders; // Show all orders
+    } else {
+      // Filter out completed and canceled orders
+      return orders
+          .where(
+            (order) =>
+                order.status.toLowerCase() != 'completed' &&
+                order.status.toLowerCase() != 'canceled',
+          )
+          .toList();
+    }
   }
 
   @override
@@ -26,10 +45,30 @@ class _OrderScreenState extends State<OrderScreen> {
         // Handle any state changes if needed
       },
       builder: (context, state) {
+        // Filter orders
+        final filteredOrders = _filterOrders(state.orderList);
+
         return Scaffold(
-          appBar: AppBar(
-            title: const Text('Orders'),
+          appBar: ConnectionStatusAppBar(
+            title: 'Orders',
             actions: [
+              // Toggle to show/hide completed orders
+              IconButton(
+                icon: Icon(
+                  _showCompletedOrders
+                      ? Icons.visibility_off
+                      : Icons.visibility,
+                ),
+                tooltip:
+                    _showCompletedOrders
+                        ? 'Hide completed orders'
+                        : 'Show completed orders',
+                onPressed: () {
+                  setState(() {
+                    _showCompletedOrders = !_showCompletedOrders;
+                  });
+                },
+              ),
               IconButton(
                 icon: const Icon(Icons.refresh),
                 onPressed: () {
@@ -42,11 +81,31 @@ class _OrderScreenState extends State<OrderScreen> {
           body:
               state.status == StateStatus.loading
                   ? const Center(child: CircularProgressIndicator())
-                  : state.orderList.isEmpty
-                  ? const Center(
-                    child: Text(
-                      'No orders available',
-                      style: TextStyle(fontSize: 18),
+                  : state.status == StateStatus.error
+                  ? ConnectionErrorWidget(
+                    onRetry: () {
+                      context.read<HomeBloc>().add(HomeInitialEvent());
+                    },
+                  )
+                  : filteredOrders.isEmpty
+                  ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text(
+                          'No active orders',
+                          style: TextStyle(fontSize: 18),
+                        ),
+                        if (!_showCompletedOrders && state.orderList.isNotEmpty)
+                          TextButton(
+                            onPressed: () {
+                              setState(() {
+                                _showCompletedOrders = true;
+                              });
+                            },
+                            child: const Text('Show completed orders'),
+                          ),
+                      ],
                     ),
                   )
                   : Column(
@@ -83,13 +142,40 @@ class _OrderScreenState extends State<OrderScreen> {
                         ),
                       ),
 
+                      // Filter indicator
+                      if (!_showCompletedOrders)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12.0,
+                            vertical: 4.0,
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.filter_list,
+                                size: 16,
+                                color: Colors.blue,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Showing active orders only',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.blue,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
                       // Order list
                       Expanded(
                         child: ListView.builder(
-                          itemCount: state.orderList.length,
+                          itemCount: filteredOrders.length,
                           itemBuilder: (context, index) {
                             return CustomOrderWidget(
-                              order: state.orderList[index],
+                              order: filteredOrders[index],
                             );
                           },
                         ),
@@ -101,8 +187,9 @@ class _OrderScreenState extends State<OrderScreen> {
     );
   }
 
-  // Helper method to count orders by status
-  int _countOrdersByStatus(List<dynamic> orderList, String status) {
-    return orderList.where((order) => order.status == status).length;
+  int _countOrdersByStatus(List<dynamic> orders, String status) {
+    return orders
+        .where((order) => order.status.toLowerCase() == status.toLowerCase())
+        .length;
   }
 }

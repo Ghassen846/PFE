@@ -12,6 +12,8 @@ class ServerConfig {
   static const String EMULATOR_URL = 'http://10.0.2.2:3000/api';
   static const String LOCALHOST_URL = 'http://localhost:3000/api';
   static const String LOOPBACK_URL = 'http://127.0.0.1:3000/api';
+  static const String ALTERNATIVE_URL =
+      'http://192.168.1.100:3000/api'; // Add an alternative IP to try
 
   // Image server base URL
   static const String IMAGE_SERVER_BASE = 'http://$SERVER_IP:3000';
@@ -32,9 +34,9 @@ class ServerConfig {
       log('Using saved server URL: $_activeServerUrl');
       return;
     }
-
     final urls = [
       PRIMARY_SERVER_URL,
+      ALTERNATIVE_URL, // Try alternative IP first
       EMULATOR_URL,
       LOCALHOST_URL,
       LOOPBACK_URL,
@@ -58,9 +60,13 @@ class ServerConfig {
     try {
       final response = await http
           .get(Uri.parse(url))
-          .timeout(const Duration(seconds: 5));
+          .timeout(
+            const Duration(seconds: 3),
+          ); // Reduced timeout for faster fallback
       final isSuccess = response.statusCode >= 200 && response.statusCode < 300;
-      log('Test URL $url: ${isSuccess ? 'Success' : 'Failed'}');
+      log(
+        'Test URL $url: ${isSuccess ? 'Success' : 'Failed with status ${response.statusCode}'}',
+      );
       return isSuccess;
     } catch (e) {
       log('Error testing URL $url: $e');

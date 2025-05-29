@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart'; // Add this import for MediaType
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:developer' as developer;
@@ -230,51 +231,89 @@ class ApiService {
     }
   }
 
-  // File upload with multipart request
+  /// Uploads a file to the server - overload method for backward compatibility
   static Future<Map<String, dynamic>> uploadFile(
     String endpoint,
-    File file,
-    String fileField, {
+    dynamic filePathOrFile,
+    String fieldName, {
+    Map<String, String>? queryParams,
     Map<String, String>? fields,
-    Map<String, String>? headers,
   }) async {
-    final url = _buildUrl(endpoint);
-    final defaultHeaders = await _getHeaders();
-    final requestHeaders = {...defaultHeaders, ...?headers};
-
-    developer.log('Upload request to: ${url.toString()}', name: 'ApiService');
-    developer.log('Headers: $requestHeaders', name: 'ApiService');
-    developer.log('Fields: $fields', name: 'ApiService');
-    developer.log('File: ${file.path}', name: 'ApiService');
-
-    final request = http.MultipartRequest('POST', url);
-    request.headers.addAll(requestHeaders);
-
-    if (fields != null) {
-      request.fields.addAll(fields);
-    }
-
-    final fileStream = http.ByteStream(file.openRead());
-    final length = await file.length();
-
-    final multipartFile = http.MultipartFile(
-      fileField,
-      fileStream,
-      length,
-      filename: file.path.split('/').last,
+    return await uploadFile2(
+      endpoint,
+      filePathOrFile,
+      fieldName: fieldName,
+      queryParams: queryParams,
+      fields: fields,
     );
+  }
 
-    request.files.add(multipartFile);
-
+  /// Uploads a file to the server - main implementation with named parameters
+  static Future<Map<String, dynamic>> uploadFile2(
+    String endpoint,
+    dynamic filePathOrFile, {
+    String? fileName,
+    String fieldName = 'file',
+    Map<String, String>? queryParams,
+    Map<String, String>? fields,
+    String? mimeType,
+  }) async {
     try {
-      final streamedResponse = await request.send().timeout(
-        const Duration(seconds: 10),
-      );
+      final String url = _buildUrl(endpoint).toString();
+      final token = await getToken();
+
+      // Create the multipart request
+      final request = http.MultipartRequest('POST', Uri.parse(url));
+
+      // Add headers
+      request.headers['Accept'] = 'application/json';
+      if (token != null) {
+        request.headers['Authorization'] = 'Bearer $token';
+      }
+
+      // Add the file with explicit content type if provided
+      http.MultipartFile file;
+      if (filePathOrFile is File) {
+        // Handle File object
+        file = await http.MultipartFile.fromPath(
+          fieldName,
+          filePathOrFile.path,
+          filename: fileName ?? filePathOrFile.path.split('/').last,
+          contentType: mimeType != null ? MediaType.parse(mimeType) : null,
+        );
+      } else if (filePathOrFile is String) {
+        // Handle String path
+        file = await http.MultipartFile.fromPath(
+          fieldName,
+          filePathOrFile,
+          filename: fileName ?? filePathOrFile.split('/').last,
+          contentType: mimeType != null ? MediaType.parse(mimeType) : null,
+        );
+      } else {
+        throw ArgumentError(
+          'filePathOrFile must be either a File object or a String path',
+        );
+      }
+
+      request.files.add(file);
+
+      // Add query parameters if provided
+      if (queryParams != null) {
+        request.fields.addAll(queryParams);
+      }
+
+      // Add additional fields if provided
+      if (fields != null) {
+        request.fields.addAll(fields);
+      }
+
+      final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
+
       return _processResponse(response);
     } catch (e) {
-      developer.log('Upload request error: $e', name: 'ApiService');
-      return {'error': e.toString(), 'statusCode': 500};
+      developer.log('Error uploading file: $e', name: 'ApiService');
+      return {'error': e.toString()};
     }
   }
 
@@ -613,13 +652,14 @@ class ApiService {
       } else if (response.containsKey('id')) {
         userId = response['id'].toString();
       }
-
       if (userId == null) {
         developer.log(
           'No user ID in registration response: $response',
           name: 'ApiService',
         );
-      } // Upload profile image if provided
+      }
+
+      // Upload profile image if provided
       String? imageUrl;
       if (profileImage != null && userId != null) {
         developer.log(
@@ -639,9 +679,9 @@ class ApiService {
               name: 'ApiService',
             ); // Don't throw - continue with registration even if image upload fails
           } else if (imageResponse.containsKey('image')) {
-            imageUrl = imageResponse['image'] as String;
+            imageUrl = imageResponse['image'] as String?;
           } else if (imageResponse.containsKey('imageUrl')) {
-            imageUrl = imageResponse['imageUrl'] as String;
+            imageUrl = imageResponse['imageUrl'] as String?;
           }
 
           if (imageUrl != null) {
@@ -677,6 +717,7 @@ class ApiService {
           'Uploading ${vehicleDocuments.length} vehicle documents',
           name: 'ApiService',
         );
+
         for (var doc in vehicleDocuments) {
           final docResponse = await uploadFile(
             'api/users/register/documents?userId=$userId',
@@ -684,15 +725,15 @@ class ApiService {
             'document',
           );
           if (docResponse.containsKey('document')) {
-            String docUrl = docResponse['document'] as String;
-            documentUrls.add(
-              _processImageUrl(docUrl),
-            ); // Use the same URL processor
+            String? docUrl = docResponse['document'] as String?;
+            if (docUrl != null) {
+              documentUrls.add(_processImageUrl(docUrl));
+            }
           } else if (docResponse.containsKey('documentUrl')) {
-            String docUrl = docResponse['documentUrl'] as String;
-            documentUrls.add(
-              _processImageUrl(docUrl),
-            ); // Use the same URL processor
+            String? docUrl = docResponse['documentUrl'] as String?;
+            if (docUrl != null) {
+              documentUrls.add(_processImageUrl(docUrl));
+            }
           }
         }
         if (documentUrls.isNotEmpty) {
@@ -780,7 +821,7 @@ class ApiService {
     final prefs = await SharedPreferences.getInstance();
     String? userId = prefs.getString('userId');
 
-    if (userId != null && userId.isNotEmpty) {
+    if (userId!.isNotEmpty) {
       developer.log(
         'Retrieved user ID from SharedPreferences: $userId',
         name: 'ApiService',

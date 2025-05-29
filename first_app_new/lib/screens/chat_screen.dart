@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:first_app_new/services/api_service.dart';
+import 'package:first_app_new/services/server_config.dart'; // Add this import
 import 'package:first_app_new/models/chat_model/chat_message.dart';
 import 'package:first_app_new/models/chat_model/chat_user.dart';
 import 'package:first_app_new/customs/chat_bubble.dart';
@@ -411,7 +412,6 @@ class _ChatScreenState extends State<ChatScreen> {
         imageFile,
         'image',
       );
-
       if (response.containsKey('error')) {
         developer.log(
           'Error uploading image: ${response['error']}',
@@ -441,8 +441,8 @@ class _ChatScreenState extends State<ChatScreen> {
       // Construct the full URL for the uploaded image
       final filename = response['filename'];
       if (filename != null && filename.isNotEmpty) {
-        // Use the complete URL including hostname
-        final imageUrl = 'http://192.168.100.198:3000/uploads/$filename';
+        // Use ServerConfig to get the proper image server base URL
+        final imageUrl = '${ServerConfig.IMAGE_SERVER_BASE}/uploads/$filename';
         developer.log('Image URL: $imageUrl', name: 'ChatScreen');
         return imageUrl;
       }
@@ -526,7 +526,7 @@ class _ChatScreenState extends State<ChatScreen> {
               color: Colors.white,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.grey.withOpacity(0.2),
+                  color: Colors.grey.withValues(alpha: 0.2),
                   blurRadius: 4,
                   offset: const Offset(0, -1),
                 ),

@@ -121,6 +121,9 @@ class OrderService {
           })
           .where((order) => order != null) // Filter out null orders
           .cast<Order>() // Cast the non-null orders to Order
+          .where(
+            (order) => _shouldShowOrderToDeliveryPerson(order),
+          ) // Filter active orders only
           .toList();
     } catch (e) {
       debugPrint('Error fetching orders: $e');
@@ -436,5 +439,22 @@ class OrderService {
     } catch (e) {
       debugPrint('Error debugging order data types: $e');
     }
+  }
+
+  // Helper method to determine if an order should be shown to delivery person
+  bool _shouldShowOrderToDeliveryPerson(Order order) {
+    final status = order.status.toLowerCase();
+
+    // Hide cancelled, completed, and delivered orders from delivery person's active list
+    final hiddenStatuses = ['cancelled', 'completed', 'delivered'];
+
+    if (hiddenStatuses.contains(status)) {
+      debugPrint(
+        'Filtering out order ${order.order} with status: ${order.status}',
+      );
+      return false;
+    }
+
+    return true;
   }
 }

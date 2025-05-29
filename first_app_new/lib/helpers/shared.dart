@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 import 'dart:ui' as ui;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:latlong2/latlong.dart' as latlong2;
 import 'responsive/sizer_ext.dart';
 
 // User account model (simplified)
@@ -28,11 +27,6 @@ class LatLng {
 
   @override
   String toString() => 'LatLng($latitude, $longitude)';
-
-  // Convert to Leaflet LatLng
-  latlong2.LatLng toLeaflet() {
-    return latlong2.LatLng(latitude, longitude);
-  }
 
   @override
   bool operator ==(Object other) {
@@ -60,10 +54,25 @@ class BitmapDescriptor {
 }
 
 // Using dotenv for environment variables
-String baseUrl = dotenv.env['BASE_URL'] ?? 'http://192.168.100.41:5000/api';
-final String apiKey = dotenv.env['GRAPH_HOPPER_API_KEY'] ?? 'default_key';
+String baseUrl = dotenv.env['BASE_URL'] ?? 'http://192.168.100.41:3000/api';
+// Ensure a working GraphHopper API key is provided
+// You need to sign up at https://graphhopper.com to get a free API key
+String apiKey = '';
+
+// Function to ensure API key is properly loaded from .env
+void initializeApiKey() {
+  apiKey = dotenv.env['GRAPH_HOPPER_API_KEY'] ?? '';
+  if (apiKey.isEmpty ||
+      apiKey == 'your_graphhopper_api_key_here' ||
+      apiKey == 'default_key') {
+    debugPrint(
+      'Warning: Valid GraphHopper API key not configured. Routing will use fallback method.',
+    );
+  }
+}
+
 final String baseUrlWS =
-    dotenv.env['BASE_URL_WS'] ?? 'ws://192.168.100.41:5000';
+    dotenv.env['BASE_URL_WS'] ?? 'ws://192.168.100.41:3000';
 const Color hintColor = Color.fromARGB(64, 0, 0, 0);
 
 // SharedPreferences instance to be initialized in main.dart
@@ -118,28 +127,68 @@ Map getGeometryFromSharedPrefs(int index) {
 */
 
 Future<LatLng> getCoordinatesFromAddressGraphHopper(String address) async {
-  final encodedAddress = Uri.encodeComponent(address);
-
-  // Construct the URL for the GraphHopper Geocoding API
-  final url = Uri.parse(
-    'https://graphhopper.com/api/1/geocode?q=$encodedAddress&locale=en&key=$apiKey',
-  );
-
-  final response = await http.get(url);
-
-  if (response.statusCode == 200) {
-    final jsonResponse = json.decode(response.body);
-    if (jsonResponse['hits'].isNotEmpty) {
-      // Assuming the first hit is the most relevant one
-      final firstHit = jsonResponse['hits'][0];
-      final location = firstHit['point'];
-      return LatLng(location['lat'], location['lng']);
-    } else {
-      throw Exception('Failed to find location');
-    }
-  } else {
-    throw Exception('Failed to fetch data');
+  // Check if API key is available and valid
+  if (apiKey.isEmpty ||
+      apiKey == 'your_graphhopper_api_key_here' ||
+      apiKey == 'default_key') {
+    debugPrint('GraphHopper API key not configured, using fallback geocoding');
+    return await _fallbackGeocoding(address);
   }
+
+  try {
+    final encodedAddress = Uri.encodeComponent(address);
+
+    // Construct the URL for the GraphHopper Geocoding API
+    final url = Uri.parse(
+      'https://graphhopper.com/api/1/geocode?q=$encodedAddress&locale=en&key=$apiKey',
+    );
+
+    final response = await http.get(url);
+
+    if (response.statusCode == 200) {
+      final jsonResponse = json.decode(response.body);
+      if (jsonResponse['hits'].isNotEmpty) {
+        // Assuming the first hit is the most relevant one
+        final firstHit = jsonResponse['hits'][0];
+        final location = firstHit['point'];
+        return LatLng(location['lat'], location['lng']);
+      } else {
+        debugPrint('No geocoding results found, using fallback');
+        return await _fallbackGeocoding(address);
+      }
+    } else {
+      debugPrint(
+        'GraphHopper API error: ${response.statusCode}, using fallback',
+      );
+      return await _fallbackGeocoding(address);
+    }
+  } catch (e) {
+    debugPrint('GraphHopper geocoding failed: $e, using fallback');
+    return await _fallbackGeocoding(address);
+  }
+}
+
+// Fallback geocoding using backend service or default coordinates
+Future<LatLng> _fallbackGeocoding(String address) async {
+  try {
+    // Try to use the backend's geocoding service
+    final response = await http.get(
+      Uri.parse('$baseUrl/geocode/search?q=${Uri.encodeComponent(address)}'),
+    );
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      if (data['lat'] != null && data['lng'] != null) {
+        return LatLng(data['lat'], data['lng']);
+      }
+    }
+  } catch (e) {
+    debugPrint('Backend geocoding failed: $e');
+  }
+
+  // Final fallback: return Mahdia coordinates instead of default Tunisia coordinates
+  debugPrint('All geocoding methods failed, using Mahdia coordinates');
+  return const LatLng(35.5270204, 11.0332198); // Mahdia coordinates
 }
 
 Future<String> getAddressFromCoordinatesGraphHopper(
@@ -147,27 +196,72 @@ Future<String> getAddressFromCoordinatesGraphHopper(
   double longitude,
   String apiKey,
 ) async {
-  // Construct the URL for the GraphHopper Reverse Geocoding API
-  final url = Uri.parse(
-    'https://graphhopper.com/api/1/geocode?point=$latitude,$longitude&locale=en&reverse=true&key=$apiKey',
-  );
-
-  final response = await http.get(url);
-
-  if (response.statusCode == 200) {
-    final jsonResponse = json.decode(response.body);
-    if (jsonResponse['hits'].isNotEmpty) {
-      // Assuming the first hit is the most relevant one
-      final firstHit = jsonResponse['hits'][0];
-      // Extracting the full address
-      final address = firstHit['name'];
-      return address;
-    } else {
-      throw Exception('Failed to find address');
-    }
-  } else {
-    throw Exception('Failed to fetch data');
+  // Check if API key is available and valid
+  if (apiKey.isEmpty ||
+      apiKey == 'your_graphhopper_api_key_here' ||
+      apiKey == 'default_key') {
+    debugPrint(
+      'GraphHopper API key not configured, using fallback reverse geocoding',
+    );
+    return await _fallbackReverseGeocoding(latitude, longitude);
   }
+
+  try {
+    // Construct the URL for the GraphHopper Reverse Geocoding API
+    final url = Uri.parse(
+      'https://graphhopper.com/api/1/geocode?point=$latitude,$longitude&locale=en&reverse=true&key=$apiKey',
+    );
+
+    final response = await http.get(url);
+
+    if (response.statusCode == 200) {
+      final jsonResponse = json.decode(response.body);
+      if (jsonResponse['hits'].isNotEmpty) {
+        // Assuming the first hit is the most relevant one
+        final firstHit = jsonResponse['hits'][0];
+        // Extracting the full address
+        final address = firstHit['name'];
+        return address;
+      } else {
+        debugPrint('No reverse geocoding results found, using fallback');
+        return await _fallbackReverseGeocoding(latitude, longitude);
+      }
+    } else {
+      debugPrint(
+        'GraphHopper API error: ${response.statusCode}, using fallback',
+      );
+      return await _fallbackReverseGeocoding(latitude, longitude);
+    }
+  } catch (e) {
+    debugPrint('GraphHopper reverse geocoding failed: $e, using fallback');
+    return await _fallbackReverseGeocoding(latitude, longitude);
+  }
+}
+
+// Fallback reverse geocoding using backend service or default address
+Future<String> _fallbackReverseGeocoding(
+  double latitude,
+  double longitude,
+) async {
+  try {
+    // Try to use the backend's reverse geocoding service
+    final response = await http.get(
+      Uri.parse('$baseUrl/geocode/reverse?lat=$latitude&lon=$longitude'),
+    );
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      if (data['address'] != null) {
+        return data['address'];
+      }
+    }
+  } catch (e) {
+    debugPrint('Backend reverse geocoding failed: $e');
+  }
+
+  // Final fallback: return a location description for Mahdia
+  debugPrint('All reverse geocoding methods failed, using Mahdia address');
+  return 'Mahdia, Tunisia';
 }
 
 Future<BitmapDescriptor> getMarkerFromAsset(

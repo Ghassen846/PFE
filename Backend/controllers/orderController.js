@@ -4,6 +4,71 @@ import Delivery from '../models/Delivery.js'; // Import the Delivery model
 import mongoose from 'mongoose';
 import User from '../models/User.js';
 
+/**
+ * Validate and normalize coordinates, using Tunisia defaults if needed
+ * @param {number|string|null} lat 
+ * @param {number|string|null} lon 
+ * @returns {{latitude: number, longitude: number}}
+ */
+const validateCoordinates = (lat, lon) => {
+  // Default Tunisia coordinates
+  const DEFAULT_LAT = 36.8065;
+  const DEFAULT_LNG = 10.1815;
+  
+  // Parse coordinates
+  let latitude = parseFloat(lat);
+  let longitude = parseFloat(lon);
+  
+  // Validate latitude
+  if (isNaN(latitude) || latitude < -90 || latitude > 90) {
+    console.warn(`Invalid latitude: ${lat}, using default`);
+    latitude = DEFAULT_LAT;
+  }
+  
+  // Validate longitude
+  if (isNaN(longitude) || longitude < -180 || longitude > 180) {
+    console.warn(`Invalid longitude: ${lon}, using default`);
+    longitude = DEFAULT_LNG;
+  }
+  
+  return { latitude, longitude };
+};
+
+// Tunisia default coordinates
+const DEFAULT_LAT = 36.8065;
+const DEFAULT_LNG = 10.1815;
+
+// Validate and normalize coordinates
+function coordinates(lat, lng) {
+  // Parse coordinates
+  const parsedLat = parseFloat(lat);
+  const parsedLng = parseFloat(lng);
+
+  // Check if valid numbers
+  if (isNaN(parsedLat) || isNaN(parsedLng)) {
+    return { lat: DEFAULT_LAT, lng: DEFAULT_LNG };
+  }
+
+  // Check lat/lng ranges
+  if (parsedLat < -90 || parsedLat > 90 || parsedLng < -180 || parsedLng > 180) {
+    return { lat: DEFAULT_LAT, lng: DEFAULT_LNG };
+  }
+
+  // Tunisia approximate bounding box
+  const TUNISIA_BOUNDS = {
+    minLat: 30.2400, maxLat: 37.7000,
+    minLng: 7.5200, maxLng: 11.6000
+  };
+
+  // If coordinates are way outside Tunisia, use defaults
+  if (parsedLat < TUNISIA_BOUNDS.minLat || parsedLat > TUNISIA_BOUNDS.maxLat ||
+      parsedLng < TUNISIA_BOUNDS.minLng || parsedLng > TUNISIA_BOUNDS.maxLng) {
+    return { lat: DEFAULT_LAT, lng: DEFAULT_LNG };
+  }
+
+  return { lat: parsedLat, lng: parsedLng };
+}
+
 // Get all orders
 export const getOrders = async (req, res) => {
   try {
@@ -81,7 +146,7 @@ export const createOrder = async (req, res) => {
     } = req.body;
 
     // Validate required fields
-    if (!user || !restaurant || !items || !phone || latitude === undefined || longitude === undefined || !cookingTime || !reference) {
+    if (!user || !restaurant || !items || !phone || !cookingTime || !reference) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
 
@@ -97,14 +162,23 @@ export const createOrder = async (req, res) => {
       restaurantLongitude = restaurantDoc.longitude;
     }
 
+    // Validate and normalize both order and restaurant coordinates
+    const orderCoords = validateCoordinates(latitude, longitude);
+    const restaurantCoords = validateCoordinates(restaurantLatitude, restaurantLongitude);
+
     // Create new order
     const order = new Order({
       user,
       restaurant,
       items,
       phone,
-      latitude,
-      longitude,
+      latitude: orderCoords.latitude,
+      longitude: orderCoords.longitude,
+      restaurantName,
+      restaurantLocation: {
+        latitude: restaurantCoords.latitude,
+        longitude: restaurantCoords.longitude
+      },
       cookingTime,
       reference,
       paymentMethod,
@@ -419,8 +493,11 @@ export const getOrdersByLivreur = async (req, res) => {
       return res.status(400).json({ message: 'Livreur ID is required' });
     }
     
-    // Find orders assigned to this livreur
-    const orders = await Order.find({ livreur: livreurId })
+    // Find orders assigned to this livreur, excluding cancelled and completed orders
+    const orders = await Order.find({ 
+      livreur: livreurId,
+      status: { $nin: ['cancelled', 'completed', 'delivered'] }  // Exclude cancelled, completed, and delivered orders
+    })
       .populate('user', 'name firstName email phone')
       .populate('restaurant', 'name address cuisine latitude longitude avgCookingTime')
       .populate('items.food', 'name price imageUrl');

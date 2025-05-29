@@ -15,15 +15,13 @@ const orderSchema = new mongoose.Schema({
     type: String,
     default: 'Unknown Restaurant'
   },
-  restaurantLocation: {
-    latitude: {
-      type: Number,
-      default: null
-    },
-    longitude: {
-      type: Number,
-      default: null
-    }
+  restaurantLatitude: {
+    type: Number,
+    default: 36.8065
+  },
+  restaurantLongitude: {
+    type: Number,
+    default: 10.1815
   },
   items: [
     {
@@ -40,7 +38,16 @@ const orderSchema = new mongoose.Schema({
     }
   ],
   totalPrice: {
-    type: Number, // Remove `required: true`
+    type: Number,
+    min: 0
+  },
+  subtotal: {
+    type: Number,
+    min: 0
+  },
+  deliveryFee: {
+    type: Number,
+    default: 3,
     min: 0
   },
   status: {
@@ -48,17 +55,49 @@ const orderSchema = new mongoose.Schema({
     enum: ['pending', 'livring', 'completed', 'cancelled'],
     default: 'pending'
   },
+  paymentStatus: {
+    type: String,
+    enum: ['pending', 'paid', 'failed'],
+    default: 'pending'
+  },
+  serviceMethod: {
+    type: String,
+    enum: ['delivery'],
+    default: 'delivery'
+  },
+  paymentMethod: {
+    type: String,
+    enum: ['credit-card', 'paypal'],
+    default: 'credit-card'
+  },
+  reference: {
+    type: Number,
+    required: true,
+    unique: true
+  },
   phone: {
     type: String,
     required: true
   },
   latitude: {
     type: Number,
-    required: true
+    required: true,
+    validate: {
+      validator: function(v) {
+        return v >= -90 && v <= 90;
+      },
+      message: props => `${props.value} is not a valid latitude! Must be between -90 and 90.`
+    }
   },
   longitude: {
     type: Number,
-    required: true
+    required: true,
+    validate: {
+      validator: function(v) {
+        return v >= -180 && v <= 180;
+      },
+      message: props => `${props.value} is not a valid longitude! Must be between -180 and 180.`
+    }
   },
   paymentStatus: {
     type: String,

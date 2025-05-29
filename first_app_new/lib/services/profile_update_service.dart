@@ -115,6 +115,7 @@ class ProfileUpdateService {
         'Uploading profile image for user ID: $userId',
         name: 'ProfileUpdateService',
       );
+
       final response = await ApiService.uploadFile(
         'user/$userId/image',
         imageFile,

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 class Order extends Equatable {
   final String orderId;
   final String order;
+  final String validationCode;
   final String customerName;
   final String status;
   final String pickupLocation;
@@ -15,18 +16,14 @@ class Order extends Equatable {
   final String createdAt;
   final String updatedAt;
   final String orderRef;
-  final String validationCode;
+  final String? address;
   final String? id;
-  final int reference;
-  final double? subtotal;
-  final double? totalPrice;
-  final double? deliveryFee;
-  final String? paymentStatus;
-  final String? serviceMethod;
-  final String? paymentMethod;
-  final int? cookingTime;
   final String? restaurantName;
-  final List<Map<String, dynamic>>? items;
+  final String reference;
+  final double? restaurantLatitude;
+  final double? restaurantLongitude;
+  final double? customerLatitude;
+  final double? customerLongitude;
 
   const Order({
     required this.orderId,
@@ -42,54 +39,108 @@ class Order extends Equatable {
     required this.createdAt,
     required this.updatedAt,
     required this.orderRef,
+    required this.reference,
+    this.address,
     this.id,
-    this.reference = 0,
-    this.subtotal,
-    this.totalPrice,
-    this.deliveryFee,
-    this.paymentStatus,
-    this.serviceMethod,
-    this.paymentMethod,
-    this.cookingTime,
     this.restaurantName,
-    this.items,
+    this.restaurantLatitude,
+    this.restaurantLongitude,
+    this.customerLatitude,
+    this.customerLongitude,
   });
 
   factory Order.fromJson(Map<String, dynamic> json) {
     try {
-      // Get the reference field
-      final ref =
-          json['reference'] != null
-              ? int.tryParse(json['reference'].toString()) ?? 0
-              : 0;
+      final restaurantData = json['restaurant'] ?? {};
 
-      // Extract restaurant data
-      Map<String, dynamic> restaurantData = {};
+      String orderNum = '';
+      if (json['order'] != null) {
+        orderNum = json['order'].toString();
+      } else if (json['reference'] != null) {
+        orderNum = json['reference'].toString();
+      } else if (json['orderRef'] != null) {
+        orderNum = json['orderRef'].toString();
+      }
+
+      String ref = orderNum;
+      if (json['reference'] != null) {
+        ref = json['reference'].toString();
+      } else if (json['orderRef'] != null) {
+        ref = json['orderRef'].toString();
+      }
+
+      String validationCode = '';
+      if (json['validationCode'] != null) {
+        validationCode = json['validationCode'].toString();
+      }
+
+      String customerPhone = '';
+      if (json['phone'] != null) {
+        customerPhone = json['phone'].toString();
+      } else if (json['customerPhone'] != null) {
+        customerPhone = json['customerPhone'].toString();
+      } else if (json['customer'] is Map) {
+        final customerData = json['customer'] as Map<String, dynamic>;
+        customerPhone = customerData['phone']?.toString() ?? '';
+      }
+
+      String deliveryAddress = '';
+      if (json['deliveryAddress'] != null) {
+        deliveryAddress = json['deliveryAddress'].toString();
+      } else if (json['address'] != null) {
+        deliveryAddress = json['address'].toString();
+      } else if (json['customer'] is Map) {
+        final customerData = json['customer'] as Map<String, dynamic>;
+        deliveryAddress = customerData['address']?.toString() ?? '';
+      }
+
+      // Parse status with proper null handling
+      String status = 'pending';
+      if (json['status'] != null) {
+        status = json['status'].toString().toLowerCase();
+      }
+
+      // Parse coordinates
+      double? restaurantLat;
+      double? restaurantLng;
+      double? customerLat;
+      double? customerLng;
+
       if (json['restaurant'] is Map) {
-        restaurantData = json['restaurant'] as Map<String, dynamic>;
+        final restaurant = json['restaurant'] as Map<String, dynamic>;
+        restaurantLat = _parseCoordinate(restaurant['latitude']);
+        restaurantLng = _parseCoordinate(restaurant['longitude']);
       }
 
-      // Extract items
-      List<Map<String, dynamic>> itemsList = [];
-      if (json['items'] is List) {
-        itemsList =
-            (json['items'] as List)
-                .map((item) => Map<String, dynamic>.from(item))
-                .toList();
+      if (json['customerLatitude'] != null &&
+          json['customerLongitude'] != null) {
+        customerLat = _parseCoordinate(json['customerLatitude']);
+        customerLng = _parseCoordinate(json['customerLongitude']);
+      } else if (json['customer'] is Map) {
+        final customer = json['customer'] as Map<String, dynamic>;
+        customerLat = _parseCoordinate(customer['latitude']);
+        customerLng = _parseCoordinate(customer['longitude']);
       }
 
+      // Create order with all available data
       return Order(
         orderId: _convertToString(json['_id']) ?? '',
-        order: _convertToString(json['order']) ?? '',
-        validationCode: _convertToString(json['validationCode']) ?? '',
-        customerName: json['customerName']?.toString() ?? 'Unknown Customer',
-        status: json['status']?.toString().toLowerCase() ?? 'pending',
+        order: orderNum,
+        validationCode: validationCode,
+        customerName:
+            json['customerName']?.toString() ??
+            (json['customer'] is Map
+                ? (json['customer'] as Map<String, dynamic>)['name']?.toString()
+                : null) ??
+            'Unknown Customer',
+        status: status,
         pickupLocation:
             json['restaurantName']?.toString() ??
             json['pickupLocation']?.toString() ??
+            restaurantData['address']?.toString() ??
             'Unknown',
-        customerPhone: json['phone']?.toString() ?? '',
-        deliveryAddress: json['deliveryAddress']?.toString() ?? '',
+        customerPhone: customerPhone,
+        deliveryAddress: deliveryAddress,
         deliveryDate:
             json['createdAt'] != null
                 ? DateTime.parse(
@@ -99,31 +150,15 @@ class Order extends Equatable {
         deliveryMan: json['deliveryMan']?.toString() ?? '',
         createdAt: json['createdAt']?.toString() ?? DateTime.now().toString(),
         updatedAt: json['updatedAt']?.toString() ?? DateTime.now().toString(),
-        orderRef: _convertToString(json['orderRef']) ?? ref.toString(),
-        reference: ref,
-        subtotal:
-            json['subtotal'] != null
-                ? double.tryParse(json['subtotal'].toString())
-                : null,
-        totalPrice:
-            json['totalPrice'] != null
-                ? double.tryParse(json['totalPrice'].toString())
-                : null,
-        deliveryFee:
-            json['deliveryFee'] != null
-                ? double.tryParse(json['deliveryFee'].toString())
-                : null,
-        paymentStatus: json['paymentStatus']?.toString(),
-        serviceMethod: json['serviceMethod']?.toString(),
-        paymentMethod: json['paymentMethod']?.toString(),
-        cookingTime:
-            json['cookingTime'] != null
-                ? int.tryParse(json['cookingTime'].toString())
-                : null,
-        restaurantName:
-            json['restaurantName']?.toString() ??
-            restaurantData['name']?.toString(),
-        items: itemsList,
+        orderRef: ref,
+        reference: ref, // Use the same value as orderRef for reference
+        address: json['address']?.toString(),
+        id: json['_id']?.toString(),
+        restaurantName: restaurantData['name']?.toString(),
+        restaurantLatitude: restaurantLat,
+        restaurantLongitude: restaurantLng,
+        customerLatitude: customerLat,
+        customerLongitude: customerLng,
       );
     } catch (e) {
       debugPrint('Error creating Order from JSON: $e');
@@ -131,8 +166,9 @@ class Order extends Equatable {
         'Problematic JSON: ${json.toString().substring(0, json.toString().length > 300 ? 300 : json.toString().length)}',
       );
 
-      return Order(
-        orderId: json['_id']?.toString() ?? 'error',
+      // Return a fallback order to prevent app crashes
+      return const Order(
+        orderId: 'error',
         order: 'Error parsing order',
         validationCode: '0000',
         customerName: 'Unknown',
@@ -140,23 +176,32 @@ class Order extends Equatable {
         pickupLocation: 'Unknown',
         customerPhone: '',
         deliveryAddress: '',
-        deliveryDate: DateTime.now().toString(),
+        deliveryDate: '',
         deliveryMan: '',
-        createdAt: DateTime.now().toString(),
-        updatedAt: DateTime.now().toString(),
-        orderRef: 'ERR',
+        createdAt: '',
+        updatedAt: '',
+        orderRef: '',
+        reference: '', // Add reference to fallback
       );
     }
   }
 
   static String? _convertToString(dynamic value) {
     if (value == null) return null;
-    try {
-      return value.toString();
-    } catch (e) {
-      debugPrint('Error converting value to string: $e');
-      return null;
+    return value.toString();
+  }
+
+  static double? _parseCoordinate(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    if (value is String) {
+      try {
+        return double.parse(value);
+      } catch (e) {
+        return null;
+      }
     }
+    return null;
   }
 
   @override
@@ -174,15 +219,14 @@ class Order extends Equatable {
     createdAt,
     updatedAt,
     orderRef,
-    reference,
-    subtotal,
-    totalPrice,
-    deliveryFee,
-    paymentStatus,
-    serviceMethod,
-    paymentMethod,
-    cookingTime,
+    address,
+    id,
     restaurantName,
+    reference,
+    restaurantLatitude,
+    restaurantLongitude,
+    customerLatitude,
+    customerLongitude,
   ];
 
   Order copyWith({
@@ -199,16 +243,14 @@ class Order extends Equatable {
     String? createdAt,
     String? updatedAt,
     String? orderRef,
-    int? reference,
-    double? subtotal,
-    double? totalPrice,
-    double? deliveryFee,
-    String? paymentStatus,
-    String? serviceMethod,
-    String? paymentMethod,
-    int? cookingTime,
+    String? address,
+    String? id,
     String? restaurantName,
-    List<Map<String, dynamic>>? items,
+    String? reference,
+    double? restaurantLatitude,
+    double? restaurantLongitude,
+    double? customerLatitude,
+    double? customerLongitude,
   }) {
     return Order(
       orderId: orderId ?? this.orderId,
@@ -225,15 +267,13 @@ class Order extends Equatable {
       updatedAt: updatedAt ?? this.updatedAt,
       orderRef: orderRef ?? this.orderRef,
       reference: reference ?? this.reference,
-      subtotal: subtotal ?? this.subtotal,
-      totalPrice: totalPrice ?? this.totalPrice,
-      deliveryFee: deliveryFee ?? this.deliveryFee,
-      paymentStatus: paymentStatus ?? this.paymentStatus,
-      serviceMethod: serviceMethod ?? this.serviceMethod,
-      paymentMethod: paymentMethod ?? this.paymentMethod,
-      cookingTime: cookingTime ?? this.cookingTime,
+      address: address ?? this.address,
+      id: id ?? this.id,
       restaurantName: restaurantName ?? this.restaurantName,
-      items: items ?? this.items,
+      restaurantLatitude: restaurantLatitude ?? this.restaurantLatitude,
+      restaurantLongitude: restaurantLongitude ?? this.restaurantLongitude,
+      customerLatitude: customerLatitude ?? this.customerLatitude,
+      customerLongitude: customerLongitude ?? this.customerLongitude,
     );
   }
 }

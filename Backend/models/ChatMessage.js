@@ -13,7 +13,10 @@ const chatMessageSchema = new mongoose.Schema({
   },
   message: {
     type: String,
-    required: true
+    required: function() {
+      // Only required if no image is attached
+      return !this.imageUrl;
+    }
   },
   imageUrl: {
     type: String,
@@ -32,7 +35,6 @@ const chatMessageSchema = new mongoose.Schema({
 // Add indexes for faster queries
 chatMessageSchema.index({ sender: 1, receiver: 1 });
 chatMessageSchema.index({ createdAt: -1 });
-chatMessageSchema.index({ isRead: 1 });
 
 const ChatMessage = mongoose.model('ChatMessage', chatMessageSchema);
 

@@ -180,9 +180,9 @@ router.post('/message', async (req, res) => {
     const { senderId, receiverId, content, imageUrl } = req.body;
     const { user } = req;  // Get authenticated user from request
     
-    // Validate required fields
-    if (!senderId || !receiverId || !content) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    // Validate required fields (modified to allow image-only messages)
+    if (!senderId || !receiverId || (!content && !imageUrl)) {
+      return res.status(400).json({ error: 'Missing required fields. Must provide content or an image' });
     }
     
     // Validate ObjectIds
@@ -215,7 +215,7 @@ router.post('/message', async (req, res) => {
     const newMessage = new ChatMessage({
       sender: senderId,
       receiver: receiverId,
-      message: content,
+      message: content || '',  // Allow empty string when sending just an image
       imageUrl: imageUrl || '',
       isRead: false,
       createdAt: new Date()

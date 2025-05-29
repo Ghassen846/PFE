@@ -6,17 +6,13 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http_parser/http_parser.dart';
+import 'server_config.dart';
 
 class ApiService {
-  // Base URL - change this to your server address
-  static const String baseUrl = 'http://192.168.100.198:3000/api';
-  // Alternative URLs for different environments
-  static const String emulatorUrl = 'http://10.0.2.2:3000/api';
-  static const String localUrl = 'http://localhost:3000/api';
-
+  // Base URL is now handled by ServerConfig
   static String getBaseUrl() {
-    // You can extend this to use a value from SharedPreferences for dynamic configuration
-    return baseUrl;
+    // Return the dynamic server URL from ServerConfig
+    return ServerConfig.activeServerUrl;
   }
 
   static const secureStorage = FlutterSecureStorage();

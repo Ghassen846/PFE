@@ -6,6 +6,8 @@ import 'package:fluttertoast/fluttertoast.dart';
 import '../customs/info_card.dart';
 import 'package:first_app_new/services/api_service.dart';
 import '../helpers/footer_navigation_helper.dart';
+import '../widgets/network_status_widget.dart'; // Import the network status widget
+import '../services/network_status_service.dart'; // Import the network service
 import 'dart:developer' as developer;
 
 class HomeScreen extends StatefulWidget {
@@ -425,7 +427,6 @@ class _HomeScreenState extends State<HomeScreen>
     return Scaffold(
       key: _scaffoldKey,
       appBar: AppBar(
-        title: const Text('Dashboard'),
         backgroundColor: _isDarkMode ? Colors.grey[900] : Colors.blue,
         foregroundColor: Colors.white,
         leading: IconButton(
@@ -613,6 +614,38 @@ class _HomeScreenState extends State<HomeScreen>
               },
             ),
             ListTile(
+              leading: Icon(
+                NetworkStatusService().isConnected
+                    ? Icons.cloud_done
+                    : Icons.cloud_off,
+                color:
+                    NetworkStatusService().isConnected
+                        ? Colors.green
+                        : Colors.red,
+              ),
+              title: Text(
+                NetworkStatusService().isConnected
+                    ? 'Server Connected'
+                    : 'Server Offline',
+                style: TextStyle(
+                  color:
+                      NetworkStatusService().isConnected
+                          ? Colors.green
+                          : Colors.red,
+                ),
+              ),
+              onTap: () async {
+                final isConnected = await NetworkStatusService().checkNow();
+                Fluttertoast.showToast(
+                  msg:
+                      isConnected
+                          ? 'Connected to server'
+                          : 'Cannot connect to server',
+                  backgroundColor: isConnected ? Colors.green : Colors.red,
+                );
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.logout),
               title: const Text('Logout'),
               onTap: () {
@@ -625,7 +658,32 @@ class _HomeScreenState extends State<HomeScreen>
       ),
       body: Stack(
         children: [
-          _buildDashboardCards(),
+          // Network status check with StreamBuilder
+          StreamBuilder<bool>(
+            stream: NetworkStatusService().statusStream,
+            initialData: NetworkStatusService().isConnected,
+            builder: (context, snapshot) {
+              final isConnected = snapshot.data ?? false;
+
+              if (!isConnected) {
+                // Show connection error when offline
+                return ConnectionErrorWidget(
+                  onRetry: () async {
+                    await NetworkStatusService().checkNow();
+                    // If connection was restored, refresh the data
+                    if (NetworkStatusService().isConnected) {
+                      _fetchUserData();
+                      _fetchDeliveryStats();
+                      _fetchUnreadCount();
+                    }
+                  },
+                );
+              }
+
+              // Normal content when online
+              return _buildDashboardCards();
+            },
+          ),
           if (_isLoading)
             Container(
               color: Colors.black26,

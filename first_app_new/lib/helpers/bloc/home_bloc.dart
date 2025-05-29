@@ -329,6 +329,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
           validationCode: "validationCode",
           customerName: "customerName",
           status: "status",
+          reference: "order", // Use order as reference for fallback
           pickupLocation: "pickupLocation",
           customerPhone: "customerPhone",
           deliveryAddress: "deliveryAddress",

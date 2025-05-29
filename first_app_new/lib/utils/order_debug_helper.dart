@@ -6,17 +6,17 @@ class OrderDebugHelper {
   static void debugPrintOrder(dynamic orderJson) {
     try {
       if (orderJson == null) {
-        debugPrint('⚠️ Order is null');
+        debugPrint('⚠️ Ordre is null');
         return;
       }
       if (orderJson is! Map) {
-        debugPrint('⚠️ Order is not a Map: ${orderJson.runtimeType}');
+        debugPrint('⚠️ Ordre is not a Map: ${orderJson.runtimeType}');
         return;
       }
 
       final map = orderJson; // No need for cast
 
-      debugPrint('=== 🔍 ORDER DEBUG INFO ===');
+      debugPrint('=== 🔍 ORDRE DEBUG INFO ===');
       debugPrint('ID: ${map['_id']}');
 
       // Check for problematic integer fields

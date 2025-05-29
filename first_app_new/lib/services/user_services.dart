@@ -86,6 +86,7 @@ class UserService {
         'Uploading profile image for userId: $userId, file: ${imageFile.path}',
         name: 'UserService',
       );
+
       final response = await ApiService.uploadFile(
         'api/users/$userId/image',
         imageFile,

@@ -10,10 +10,8 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:async';
 import 'dart:developer';
-import 'package:http/http.dart' as http;
 import 'screens/SignUp.dart';
 import 'screens/login.dart';
 import 'screens/spalch.dart';
@@ -25,37 +23,32 @@ import 'helpers/bloc/home_bloc.dart';
 import 'generated/app_localizations.dart';
 import 'helpers/shared.dart';
 import 'services/server_config.dart';
+import 'services/network_status_service.dart'; // Import the new service
+import 'package:first_app_new/screens/order_details_screen.dart';
 
 // For storing SharedPreferences instance globally
 late SharedPreferences prefs;
 
 Future<void> _initializeNetworking() async {
   try {
-    // Check connectivity before initializing
-    final connectivityResult = await Connectivity().checkConnectivity();
-    if (connectivityResult == ConnectivityResult.none) {
-      log('No internet connection during initialization');
-      return;
-    }
-
     // Initialize ServerConfig first
     await ServerConfig.initialize();
     log('Selected server IP: ${ServerConfig.SERVER_IP}');
 
-    // Initialize ApiService if needed
-    log('Server URL: ${ServerConfig.activeServerUrl}');
+    // Initialize NetworkStatusService for better connection handling
+    await NetworkStatusService().initialize();
+    log('Network status service initialized');
 
-    // Test connection to server
-    try {
-      final testResult = await http
-          .get(Uri.parse('${ServerConfig.activeServerUrl}/health'))
-          .timeout(const Duration(seconds: 5));
+    // Test connection to server via NetworkStatusService
+    final isConnected = await NetworkStatusService().checkNow();
+    log(
+      'Server connection test result: ${isConnected ? 'Connected' : 'Disconnected'}',
+    );
 
-      log(
-        'Server connection test: ${testResult.statusCode == 200 ? "Success" : "Failed"}',
-      );
-    } catch (e) {
-      log('Server connection test failed: $e');
+    if (isConnected) {
+      log('Connected to server: ${NetworkStatusService().connectedServerUrl}');
+    } else {
+      log('Warning: No server connection established');
     }
   } catch (e) {
     log('Network initialization error: $e', stackTrace: StackTrace.current);
@@ -92,16 +85,24 @@ void main() async {
   try {
     WidgetsFlutterBinding.ensureInitialized();
 
-    // Initialize SharedPreferences and other core services first
-    await _initializeApp();
-
-    // Load .env file (optional)
+    // Load .env file first, before anything else
     try {
-      await dotenv.load(fileName: ".env");
+      await dotenv.load();
       log("Loaded .env file successfully");
+      log("Environment variables loaded: ${dotenv.env}");
+
+      // Initialize the GraphHopper API key
+      initializeApiKey();
+      final apiKey = dotenv.env['GRAPH_HOPPER_API_KEY'];
+      log(
+        "GraphHopper API key ${apiKey != null ? 'found' : 'not found'}: ${apiKey ?? 'null'}",
+      );
     } catch (e) {
       log("Error loading .env file: $e");
     }
+
+    // Initialize SharedPreferences and other core services
+    await _initializeApp();
 
     // Clear stale session data
     await _clearStorage();
@@ -184,7 +185,7 @@ class _MainAppWithFooterState extends State<MainAppWithFooter> {
         decoration: BoxDecoration(
           boxShadow: [
             BoxShadow(
-              color: Colors.grey.withOpacity(0.2),
+              color: Colors.grey.withValues(alpha: 0.2),
               spreadRadius: 1,
               blurRadius: 10,
               offset: const Offset(0, -2),
@@ -296,7 +297,15 @@ class MyApp extends StatelessWidget {
           '/testing': (context) => const TestScreen(),
           '/chat': (context) => const ChatScreen(),
 
-          // Fallback if no args provided
+          // Add order details route
+          '/order-details': (context) {
+            final args =
+                ModalRoute.of(context)?.settings.arguments
+                    as Map<String, dynamic>?;
+            final orderId = args?['orderId'] as String?;
+            final orderRef = args?['orderRef'] as String?;
+            return OrderDetailsScreen(orderId: orderId, orderRef: orderRef);
+          },
         },
       ),
     );

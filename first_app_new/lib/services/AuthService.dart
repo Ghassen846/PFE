@@ -205,7 +205,7 @@ class AuthService {
         'Token from secure storage: ${token != null ? "Found" : "Not found"}',
       );
 
-      if (token != null) return token;
+      return token;
 
       // Fall back to shared preferences if needed
       final prefs = await SharedPreferences.getInstance();

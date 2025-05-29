@@ -10,6 +10,8 @@ import multer from 'multer'; // Add multer for file uploads
 import path from 'path';
 import { Server } from 'socket.io'; // Add this for WebSocket support
 
+import { protect } from './middleware/auth.js';  // Add this import for the protect middleware
+
 import connectDB from './config/database.js';
 import cartRoutes from "./routes/cartRoutes.js";
 import chatRoutes from "./routes/chatRoutes.js"; // Import chat routes
@@ -69,6 +71,7 @@ app.use((req, res, next) => {
 const uploadsDir = path.join(process.cwd(), 'uploads');
 const foodsUploadsDir = path.join(uploadsDir, 'foods');
 const restaurantsUploadsDir = path.join(uploadsDir, 'restaurants');
+const chatUploadsDir = path.join(uploadsDir, 'chat');
 
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir);
@@ -78,6 +81,9 @@ if (!fs.existsSync(foodsUploadsDir)) {
 }
 if (!fs.existsSync(restaurantsUploadsDir)) {
   fs.mkdirSync(restaurantsUploadsDir);
+}
+if (!fs.existsSync(chatUploadsDir)) {
+  fs.mkdirSync(chatUploadsDir);
 }
 
 // Serve static files from the uploads directory
@@ -551,7 +557,170 @@ app.get('/api/geocode/restaurant-locations', async (req, res) => {
   }
 });
 
-// Mount routes (using optimized order - more specific first)
+// Forward geocoding service - Search for coordinates from an address
+app.get('/api/geocode/search', async (req, res) => {
+  try {
+    const { q } = req.query;
+    
+    if (!q) {
+      console.warn('Geocode search request missing query parameter');
+      return res.status(400).json({ error: 'Query parameter (q) is required' });
+    }
+    
+    console.log(`Forward geocode request received for address: ${q}`);
+    
+    // Set cache headers
+    res.set('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
+    
+    // Nominatim API URL for forward geocoding
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`;
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5-second timeout
+    
+    const response = await fetch(url, {
+      headers: { 
+        'User-Agent': 'pfe-update-backend/1.0', // Unique user agent as required by Nominatim
+        'Accept-Language': 'en-US,en;q=0.9'
+      },
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      console.error(`Forward geocoding error: ${response.status} ${response.statusText}`);
+      // Return Tunisia coordinates as default
+      return res.json({ lat: 36.8065, lng: 10.1815 });
+    }
+    
+    const data = await response.json();
+    
+    if (data && data.length > 0) {
+      const location = data[0];
+      return res.json({ 
+        lat: parseFloat(location.lat), 
+        lng: parseFloat(location.lon),
+        displayName: location.display_name
+      });
+    } else {
+      console.warn(`No results found for query: ${q}`);
+      // Return Tunisia coordinates as default
+      return res.json({ lat: 36.8065, lng: 10.1815 });
+    }
+  } catch (error) {
+    console.error('Forward geocoding error:', error);
+    // Return Tunisia coordinates as default
+    res.json({ lat: 36.8065, lng: 10.1815 });
+  }
+});
+
+// Configure multer storage for different file types
+const fileStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    // Determine destination folder based on file type or query parameter
+    let uploadDir = uploadsDir;
+    const fileType = req.query.type || 'general';
+    
+    switch (fileType) {
+      case 'chat':
+        uploadDir = chatUploadsDir;
+        break;
+      case 'food':
+        uploadDir = foodsUploadsDir;
+        break;
+      case 'restaurant':
+        uploadDir = restaurantsUploadsDir;
+        break;
+      default:
+        // Create a general uploads dir if it doesn't exist
+        const generalUploadsDir = path.join(uploadsDir, 'general');
+        if (!fs.existsSync(generalUploadsDir)) {
+          fs.mkdirSync(generalUploadsDir);
+        }
+        uploadDir = generalUploadsDir;
+    }
+    
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const fileType = req.query.type || 'general';
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    cb(null, `${fileType}-image-${uniqueSuffix}${ext}`);
+  }
+});
+
+// Configure multer upload with file size limits and filters
+const fileUpload = multer({
+  storage: fileStorage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max file size
+  fileFilter: (req, file, cb) => {
+    // Log the received file information for debugging
+    console.log('File upload attempt:', {
+      fieldname: file.fieldname,
+      originalname: file.originalname,
+      encoding: file.encoding,
+      mimetype: file.mimetype
+    });
+    
+    // Accept common image formats by extension if mimetype check fails
+    const acceptedImageTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/gif', 'image/webp'];
+    const acceptedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+    
+    // Check mimetype first
+    if (acceptedImageTypes.includes(file.mimetype) || file.mimetype.startsWith('image/')) {
+      cb(null, true);
+      return;
+    }
+    
+    // If mimetype check fails, check file extension as fallback
+    const extension = file.originalname.toLowerCase().substring(file.originalname.lastIndexOf('.'));
+    if (acceptedExtensions.includes(extension)) {
+      console.log(`Accepting file ${file.originalname} based on extension ${extension}`);
+      cb(null, true);
+      return;
+    }
+    
+    console.log(`Rejecting file ${file.originalname} with mimetype ${file.mimetype}`);
+    cb(null, false); // Don't throw error, just reject the file
+  }
+});
+
+// General file upload endpoint - improve error handling
+app.post('/api/upload', protect, (req, res) => {
+  fileUpload.single('image')(req, res, (err) => {
+    if (err) {
+      console.error('File upload error:', err);
+      return res.status(400).json({ 
+        error: 'File upload failed', 
+        details: err.message
+      });
+    }
+
+    if (!req.file) {
+      console.log('No file provided or file was rejected');
+      return res.status(400).json({ 
+        error: 'No file provided or invalid file type. Please upload a valid image file (jpg, png, gif, webp)'
+      });
+    }
+
+    // Create a URL path for the uploaded file
+    const filePath = `/uploads/${req.query.type || 'general'}/${req.file.filename}`;
+    
+    console.log(`File uploaded successfully: ${filePath}`);
+    
+    // Return the file path and other details
+    return res.status(201).json({
+      success: true,
+      imageUrl: filePath,
+      fileName: req.file.filename,
+      message: 'File uploaded successfully'
+    });
+  });
+});
+
+// Initialize authorized routes that require authentication
 app.use('/api/health', healthRoutes);
 app.use('/api/delivery', deliveryRoutes);  // Delivery routes have our new endpoints
 // Use users (plural) consistently for user routes
